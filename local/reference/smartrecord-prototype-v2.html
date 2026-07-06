@@ -1,0 +1,2044 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SmartRecord — สถานีแพคสินค้า</title>
+<style>
+  @font-face {
+    font-family: 'DSEG';
+    src: local('Courier New');
+  }
+
+  :root {
+    --ink: #11140f;
+    --paper: #eef0e6;
+    --steel: #c7cdbd;
+    --steel-dark: #9aa28c;
+    --line: #2a2e22;
+    --go: #4a7c3f;
+    --go-bright: #7cb342;
+    --stop: #b3392c;
+    --stop-bright: #e0483a;
+    --warn: #c98a2c;
+    --warn-bright: #f0a93e;
+    --amber: #ff8c1a;
+    --mono: 'JetBrains Mono', 'SF Mono', 'Courier New', monospace;
+    --disp: 'Archivo Black', 'Arial Black', sans-serif;
+    --body: 'Inter', -apple-system, sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    height: 100%;
+    background: var(--ink);
+    color: var(--paper);
+    font-family: var(--body);
+    overflow-x: hidden;
+  }
+
+  body {
+    background-image:
+      repeating-linear-gradient(0deg, rgba(255,255,255,0.015) 0px, rgba(255,255,255,0.015) 1px, transparent 1px, transparent 3px);
+  }
+
+  #app {
+    max-width: 980px;
+    margin: 0 auto;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ===== TOP BAR ===== */
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 20px;
+    border-bottom: 3px solid var(--line);
+    background:
+      repeating-linear-gradient(135deg, #181b13, #181b13 10px, #1c1f16 10px, #1c1f16 20px);
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .brand-mark {
+    width: 34px; height: 34px;
+    background: var(--amber);
+    display: flex; align-items: center; justify-content: center;
+    transform: rotate(-3deg);
+    border: 2px solid var(--ink);
+  }
+  .brand-mark span { font-family: var(--disp); font-size: 16px; color: var(--ink); }
+
+  .brand-text { display: flex; flex-direction: column; line-height: 1.05; }
+  .brand-text .name { font-family: var(--disp); font-size: 17px; letter-spacing: 0.5px; }
+  .brand-text .tag { font-family: var(--mono); font-size: 9px; color: var(--steel-dark); letter-spacing: 1.5px; text-transform: uppercase; }
+
+  .station-id {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--steel-dark);
+    text-align: right;
+    line-height: 1.4;
+  }
+  .station-id b { color: var(--go-bright); }
+
+  /* ===== NAV TABS ===== */
+  .nav-tabs { display: flex; border-bottom: 2px solid var(--line); }
+  .nav-tab {
+    flex: 1;
+    background: rgba(255,255,255,0.015);
+    border: none; border-right: 1px solid var(--line);
+    color: var(--steel-dark);
+    font-family: var(--mono); font-size: 12px; letter-spacing: 1px;
+    text-transform: uppercase; font-weight: 700;
+    padding: 13px 10px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  .nav-tab:last-child { border-right: none; }
+  .nav-tab .nt-ico { font-size: 13px; }
+  .nav-tab.active { background: var(--amber); color: var(--ink); }
+  .nav-tab:not(.active):hover { color: var(--paper); background: rgba(255,255,255,0.04); }
+
+  .pulse-dot {
+    display: inline-block;
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--go-bright);
+    margin-right: 5px;
+    box-shadow: 0 0 6px var(--go-bright);
+    animation: pulse 1.6s infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.35} }
+
+  /* ===== STAGE INDICATOR ===== */
+  .stage-rail {
+    display: flex;
+    border-bottom: 1px solid var(--line);
+  }
+  .stage-rail .stage {
+    flex: 1;
+    text-align: center;
+    padding: 9px 4px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--steel-dark);
+    border-right: 1px solid var(--line);
+    position: relative;
+  }
+  .stage-rail .stage:last-child { border-right: none; }
+  .stage-rail .stage.active { color: var(--ink); background: var(--amber); font-weight: 700; }
+  .stage-rail .stage.done { color: var(--go-bright); }
+  .stage-rail .stage.done::after { content: '✓'; margin-left: 5px; }
+
+  /* ===== MAIN CONTENT ===== */
+  .screen { flex: 1; padding: 22px 20px 40px; display: none; }
+  .screen.active { display: block; animation: fadein 0.25s ease; }
+  @keyframes fadein { from { opacity:0; transform: translateY(6px);} to {opacity:1; transform:none;} }
+
+  /* ---- SCREEN 1: SCAN AWB ---- */
+  .scan-hero {
+    text-align: center;
+    padding: 50px 20px 36px;
+  }
+  .scan-hero .eyebrow {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 3px;
+    color: var(--steel-dark); text-transform: uppercase; margin-bottom: 14px;
+  }
+  .scan-hero h1 {
+    font-family: var(--disp);
+    font-size: clamp(28px, 5vw, 42px);
+    line-height: 1.1;
+    margin-bottom: 16px;
+  }
+  .scan-hero p { color: var(--steel); font-size: 14px; max-width: 420px; margin: 0 auto; }
+
+  .scan-input-wrap {
+    max-width: 520px; margin: 32px auto 0;
+    border: 2px dashed var(--steel-dark);
+    padding: 26px;
+    background: rgba(255,255,255,0.02);
+    text-align: center;
+    position: relative;
+  }
+  .scan-input-wrap.armed { border-color: var(--amber); background: rgba(255,140,26,0.06); }
+
+  .scan-icon { font-size: 34px; margin-bottom: 10px; opacity: 0.8; }
+
+  #awbInput {
+    width: 100%;
+    background: var(--ink);
+    border: 2px solid var(--steel-dark);
+    color: var(--go-bright);
+    font-family: var(--mono);
+    font-size: 22px;
+    letter-spacing: 2px;
+    text-align: center;
+    padding: 14px 10px;
+    margin-top: 6px;
+    outline: none;
+  }
+  #awbInput:focus { border-color: var(--amber); }
+  #awbInput::placeholder { color: #4a5040; letter-spacing: 1px; font-size: 16px; }
+
+  .hint-line {
+    margin-top: 14px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--steel-dark);
+  }
+
+  .demo-scan-btns { display: flex; gap: 8px; justify-content: center; margin-top: 18px; flex-wrap: wrap; }
+  .chip-btn {
+    font-family: var(--mono); font-size: 11px;
+    background: none; border: 1px solid var(--steel-dark);
+    color: var(--steel); padding: 7px 12px; cursor: pointer;
+  }
+  .chip-btn:hover { border-color: var(--amber); color: var(--amber); }
+
+  .device-check {
+    max-width: 520px; margin: 26px auto 0;
+    display: flex; gap: 10px; justify-content: center;
+  }
+  .device-pill {
+    font-family: var(--mono); font-size: 10px;
+    border: 1px solid var(--line);
+    padding: 6px 10px;
+    display: flex; align-items: center; gap: 6px;
+    color: var(--steel-dark);
+  }
+  .device-pill.ok { color: var(--go-bright); border-color: var(--go); }
+  .device-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+  /* ---- SCREEN 2: PACKING ---- */
+  .pack-grid {
+    display: grid;
+    grid-template-columns: 1.1fr 1fr;
+    gap: 18px;
+  }
+  @media (max-width: 760px) { .pack-grid { grid-template-columns: 1fr; } }
+
+  .panel {
+    border: 1px solid var(--line);
+    background: rgba(255,255,255,0.015);
+  }
+  .panel-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--line);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--steel-dark);
+  }
+  .panel-body { padding: 14px; }
+
+  .rec-frame {
+    position: relative;
+    aspect-ratio: 4/3;
+    background: #000;
+    overflow: hidden;
+    border: 1px solid var(--line);
+  }
+  .rec-frame video { width: 100%; height: 100%; object-fit: cover; display: block; transform: scaleX(-1); }
+  .rec-frame .no-cam {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 8px; color: var(--steel-dark); font-family: var(--mono); font-size: 11px;
+    text-align: center; padding: 20px;
+  }
+  .rec-badge {
+    position: absolute; top: 10px; left: 10px;
+    background: var(--stop-bright); color: #fff;
+    font-family: var(--mono); font-size: 11px; font-weight: 700;
+    padding: 4px 9px; display: flex; align-items: center; gap: 6px;
+    letter-spacing: 1px;
+  }
+  .rec-badge .reddot { width: 8px; height: 8px; border-radius: 50%; background: #fff; animation: pulse 1s infinite; }
+  .rec-timer {
+    position: absolute; bottom: 10px; right: 10px;
+    background: rgba(0,0,0,0.7);
+    font-family: var(--mono); font-size: 13px; color: #fff;
+    padding: 4px 8px;
+  }
+  .order-id-overlay {
+    position: absolute; bottom: 10px; left: 10px;
+    background: rgba(0,0,0,0.6);
+    font-family: var(--mono); font-size: 10px; color: var(--go-bright);
+    padding: 4px 8px;
+  }
+
+  .order-meta { margin-top: 12px; font-family: var(--mono); font-size: 11px; color: var(--steel-dark); line-height: 1.8; }
+  .order-meta b { color: var(--paper); }
+
+  .item-list { display: flex; flex-direction: column; gap: 8px; max-height: 360px; overflow-y: auto; }
+  .item-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    background: rgba(255,255,255,0.02);
+  }
+  .item-row.checked { border-color: var(--go); background: rgba(124,179,66,0.08); }
+  .item-row .check {
+    width: 22px; height: 22px; border: 2px solid var(--steel-dark);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; flex-shrink: 0;
+  }
+  .item-row.checked .check { border-color: var(--go-bright); background: var(--go-bright); color: var(--ink); }
+  .item-row .info { flex: 1; min-width: 0; }
+  .item-row .info .pname { font-size: 13px; font-weight: 600; }
+  .item-row .info .psku { font-family: var(--mono); font-size: 10px; color: var(--steel-dark); }
+  .item-row .qty { font-family: var(--mono); font-size: 12px; color: var(--steel); flex-shrink: 0; }
+
+  .scan-bar { margin-top: 14px; display: flex; gap: 8px; }
+  #itemScanInput {
+    flex: 1;
+    background: var(--ink); border: 2px solid var(--steel-dark);
+    color: var(--paper); font-family: var(--mono); font-size: 14px;
+    padding: 11px 12px; outline: none;
+  }
+  #itemScanInput:focus { border-color: var(--amber); }
+  .scan-hint-row {
+    display: flex; justify-content: space-between;
+    font-family: var(--mono); font-size: 9.5px; color: var(--steel-dark);
+    margin-top: 6px; letter-spacing: 0.5px;
+  }
+  .scan-hint-row b { color: var(--steel); }
+  .btn {
+    font-family: var(--mono); font-size: 12px; letter-spacing: 1px; text-transform: uppercase;
+    border: none; padding: 11px 16px; cursor: pointer; font-weight: 700;
+  }
+  .btn-go { background: var(--go-bright); color: var(--ink); }
+  .btn-go:hover { background: #8fcf52; }
+  .btn-stop { background: var(--stop-bright); color: #fff; }
+  .btn-stop:hover { background: #ff5b4a; }
+  .btn-ghost { background: none; border: 1px solid var(--steel-dark); color: var(--steel); }
+  .btn-ghost:hover { border-color: var(--paper); color: var(--paper); }
+  .btn[disabled] { opacity: 0.35; cursor: not-allowed; }
+  .btn-block { width: 100%; padding: 14px; font-size: 13px; }
+
+  .flash-msg {
+    margin-top: 10px; font-family: var(--mono); font-size: 11px;
+    padding: 8px 10px; border-left: 3px solid var(--go-bright);
+    background: rgba(124,179,66,0.08); color: var(--go-bright);
+    display: none;
+  }
+  .flash-msg.show { display: block; animation: fadein 0.2s ease; }
+  .flash-msg.error { border-color: var(--stop-bright); background: rgba(224,72,58,0.1); color: var(--stop-bright); }
+
+  .progress-track { height: 6px; background: var(--line); margin-top: 14px; position: relative; overflow: hidden; }
+  .progress-fill { height: 100%; background: var(--go-bright); width: 0%; transition: width 0.3s ease; }
+
+  .finish-row { display: flex; gap: 10px; margin-top: 16px; }
+
+  /* ---- SCREEN 3: COMPLETE ---- */
+  .complete-wrap { max-width: 560px; margin: 20px auto 0; text-align: center; }
+  .complete-badge {
+    width: 64px; height: 64px; margin: 0 auto 18px;
+    background: var(--go-bright); display: flex; align-items: center; justify-content: center;
+    font-size: 30px; color: var(--ink); transform: rotate(-2deg);
+  }
+  .complete-wrap h2 { font-family: var(--disp); font-size: 28px; margin-bottom: 8px; }
+  .complete-wrap .sub { color: var(--steel); font-size: 13px; margin-bottom: 28px; }
+
+  .receipt {
+    text-align: left;
+    border: 1px solid var(--line);
+    background: rgba(255,255,255,0.02);
+    padding: 18px;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 2;
+  }
+  .receipt .rline { display: flex; justify-content: space-between; border-bottom: 1px dashed var(--line); padding: 4px 0; }
+  .receipt .rline:last-child { border-bottom: none; }
+  .receipt .rline span:first-child { color: var(--steel-dark); }
+  .receipt .rline span:last-child { color: var(--paper); }
+
+  .link-box {
+    margin-top: 20px; display: flex; gap: 8px;
+  }
+  #shareLink {
+    flex: 1; background: var(--ink); border: 1px solid var(--steel-dark);
+    color: var(--go-bright); font-family: var(--mono); font-size: 11px;
+    padding: 12px; outline: none;
+  }
+
+  .next-order-btn { margin-top: 24px; }
+
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: var(--paper); color: var(--ink); font-family: var(--mono); font-size: 12px;
+    padding: 10px 18px; font-weight: 700; opacity: 0; pointer-events: none;
+    transition: opacity 0.25s ease, transform 0.25s ease;
+    z-index: 50;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(-6px); }
+
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-track { background: var(--ink); }
+  ::-webkit-scrollbar-thumb { background: var(--steel-dark); }
+
+  /* ---- CONFIRM MODAL ---- */
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+    display: none; align-items: center; justify-content: center; z-index: 60;
+    padding: 20px;
+  }
+  .modal-backdrop.show { display: flex; }
+  .modal-box {
+    background: var(--ink); border: 2px solid var(--warn-bright);
+    max-width: 420px; width: 100%; padding: 24px;
+  }
+  .modal-box .modal-icon { font-size: 28px; color: var(--warn-bright); margin-bottom: 10px; }
+  .modal-box h3 { font-family: var(--disp); font-size: 18px; margin-bottom: 10px; }
+  .modal-box p { font-size: 13px; color: var(--steel); line-height: 1.6; margin-bottom: 6px; }
+  .modal-box .missing-list { font-family: var(--mono); font-size: 11px; color: var(--warn-bright); margin: 12px 0; line-height: 1.8; }
+  .modal-actions { display: flex; gap: 10px; margin-top: 18px; }
+  .modal-actions .btn { flex: 1; }
+
+  /* ---- SCREEN: UPLOADING ---- */
+  .upload-wrap { max-width: 460px; margin: 70px auto 0; text-align: center; }
+  .upload-wrap .spin-icon {
+    width: 52px; height: 52px; margin: 0 auto 22px;
+    border: 3px solid var(--line); border-top-color: var(--amber);
+    border-radius: 50%; animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .upload-wrap h2 { font-family: var(--disp); font-size: 22px; margin-bottom: 8px; }
+  .upload-wrap .sub { font-family: var(--mono); font-size: 11px; color: var(--steel-dark); margin-bottom: 26px; }
+  .upload-track { height: 8px; background: var(--line); position: relative; overflow: hidden; }
+  .upload-fill { height: 100%; background: var(--amber); width: 0%; transition: width 0.15s linear; }
+  .upload-pct { font-family: var(--mono); font-size: 12px; color: var(--amber); margin-top: 10px; }
+  .upload-steps { margin-top: 30px; text-align: left; font-family: var(--mono); font-size: 11px; line-height: 2.2; color: var(--steel-dark); }
+  .upload-steps .ustep.active { color: var(--amber); }
+  .upload-steps .ustep.done { color: var(--go-bright); }
+  .upload-steps .ustep .mk { display:inline-block; width:16px; }
+
+  /* ===== REPORTS VIEW ===== */
+  .rpt-header {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    flex-wrap: wrap; gap: 14px;
+    padding: 22px 20px 16px;
+  }
+  .rpt-title h1 { font-family: var(--disp); font-size: 22px; margin-bottom: 4px; }
+  .rpt-title p { font-family: var(--mono); font-size: 11px; color: var(--steel-dark); }
+
+  .rpt-search-wrap {
+    position: relative;
+    width: 100%; max-width: 380px;
+  }
+  .rpt-search-ico {
+    position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+    color: var(--steel-dark); font-size: 15px; pointer-events: none;
+  }
+  #rptSearch {
+    width: 100%;
+    background: var(--ink); border: 2px solid var(--steel-dark);
+    color: var(--paper); font-family: var(--mono); font-size: 13px;
+    padding: 11px 12px 11px 34px; outline: none;
+  }
+  #rptSearch:focus { border-color: var(--amber); }
+
+  .rpt-filters {
+    display: flex; flex-wrap: wrap; gap: 8px;
+    padding: 0 20px 14px;
+  }
+  .rpt-select {
+    background: var(--ink); border: 1px solid var(--steel-dark);
+    color: var(--steel); font-family: var(--mono); font-size: 11px;
+    padding: 8px 10px; outline: none;
+  }
+  .rpt-select:focus { border-color: var(--amber); }
+
+  .rpt-summary {
+    padding: 0 20px 12px;
+    font-family: var(--mono); font-size: 11px; color: var(--steel-dark);
+  }
+  .rpt-summary b { color: var(--go-bright); }
+
+  .rpt-table-wrap { padding: 0 20px 40px; overflow-x: auto; }
+  .rpt-table { width: 100%; border-collapse: collapse; min-width: 760px; }
+  .rpt-table thead th {
+    text-align: left;
+    font-family: var(--mono); font-size: 10px; letter-spacing: 1px; text-transform: uppercase;
+    color: var(--steel-dark);
+    border-bottom: 2px solid var(--line);
+    padding: 9px 10px;
+  }
+  .rpt-table tbody tr {
+    border-bottom: 1px solid var(--line);
+    cursor: pointer;
+  }
+  .rpt-table tbody tr:hover { background: rgba(255,255,255,0.03); }
+  .rpt-table tbody td {
+    padding: 11px 10px;
+    font-size: 12.5px;
+    vertical-align: middle;
+  }
+  .rpt-table .td-mono { font-family: var(--mono); font-size: 11.5px; color: var(--steel); }
+  .rpt-table .td-awb { font-family: var(--mono); font-size: 12px; color: var(--go-bright); font-weight: 700; }
+  .status-pill {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-family: var(--mono); font-size: 10px; padding: 4px 8px;
+    border: 1px solid currentColor;
+  }
+  .status-pill.pass { color: var(--go-bright); }
+  .status-pill.warn { color: var(--warn-bright); }
+  .row-actions { display: flex; gap: 6px; }
+  .icon-btn {
+    background: none; border: 1px solid var(--steel-dark); color: var(--steel);
+    font-family: var(--mono); font-size: 10px; padding: 5px 8px; cursor: pointer;
+  }
+  .icon-btn:hover { border-color: var(--amber); color: var(--amber); }
+
+  .rpt-empty {
+    text-align: center; padding: 50px 20px;
+    font-family: var(--mono); font-size: 12px; color: var(--steel-dark);
+  }
+
+  /* ===== DETAIL SLIDE-OVER ===== */
+  .detail-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+    display: none; justify-content: flex-end; z-index: 70;
+  }
+  .detail-backdrop.show { display: flex; }
+  .detail-panel {
+    width: 100%; max-width: 420px; height: 100%;
+    background: var(--ink); border-left: 2px solid var(--line);
+    padding: 22px; overflow-y: auto;
+    animation: slidein 0.25s ease;
+  }
+  @keyframes slidein { from { transform: translateX(30px); opacity:0;} to { transform:none; opacity:1; } }
+
+  .detail-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; }
+  .detail-eyebrow { font-family: var(--mono); font-size: 10px; color: var(--steel-dark); letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 4px; }
+  .detail-head h3 { font-family: var(--disp); font-size: 19px; color: var(--go-bright); }
+  .detail-close {
+    background: none; border: 1px solid var(--steel-dark); color: var(--steel);
+    width: 30px; height: 30px; cursor: pointer; font-size: 13px; flex-shrink: 0;
+  }
+  .detail-close:hover { border-color: var(--stop-bright); color: var(--stop-bright); }
+
+  .detail-video { margin-bottom: 18px; }
+  .detail-video-mock {
+    aspect-ratio: 16/10; background: #000;
+    border: 1px solid var(--line);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 10px; cursor: pointer;
+    background-image: repeating-linear-gradient(45deg, #0a0a0a, #0a0a0a 10px, #111 10px, #111 20px);
+  }
+  .detail-video-mock .play-tri {
+    width: 50px; height: 50px; border-radius: 50%;
+    background: rgba(240,169,62,0.15); border: 2px solid var(--amber);
+    color: var(--amber); display: flex; align-items: center; justify-content: center; font-size: 16px;
+  }
+  .detail-video-mock .dv-label { font-family: var(--mono); font-size: 10px; color: var(--steel-dark); }
+  .detail-video-meta {
+    font-family: var(--mono); font-size: 10px; color: var(--steel-dark);
+    text-align: right; margin-top: 6px;
+  }
+
+  .detail-grid { display: flex; flex-direction: column; }
+  .dg-row {
+    display: flex; justify-content: space-between; gap: 10px;
+    padding: 9px 0; border-bottom: 1px dashed var(--line);
+    font-size: 12.5px;
+  }
+  .dg-row span { color: var(--steel-dark); font-family: var(--mono); font-size: 11px; }
+  .dg-row b { text-align: right; }
+
+  .detail-link-box { display: flex; gap: 8px; margin-top: 18px; }
+  #detShareLink {
+    flex: 1; background: #050605; border: 1px solid var(--steel-dark);
+    color: var(--go-bright); font-family: var(--mono); font-size: 11px;
+    padding: 11px; outline: none;
+  }
+  .detail-link-hint { font-family: var(--mono); font-size: 9.5px; color: var(--steel-dark); margin-top: 8px; line-height: 1.6; }
+
+  /* ===== CONNECT / IMPORT VIEW ===== */
+  .cx-layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    min-height: calc(100vh - 120px);
+  }
+  @media (max-width: 820px) { .cx-layout { grid-template-columns: 1fr; } }
+
+  .cx-col {
+    padding: 22px 20px 40px;
+    border-right: 1px solid var(--line);
+  }
+  .cx-col:last-child { border-right: none; }
+
+  .cx-section-head { margin-bottom: 18px; }
+  .cx-section-title { font-family: var(--disp); font-size: 17px; margin-bottom: 4px; }
+  .cx-section-sub { font-family: var(--mono); font-size: 10px; color: var(--steel-dark); letter-spacing: 0.5px; }
+
+  /* Platform cards */
+  .platform-list { display: flex; flex-direction: column; gap: 8px; }
+  .platform-card { border: 1px solid var(--line); background: rgba(255,255,255,0.015); }
+  .platform-card.connected { border-color: var(--go); }
+
+  .pc-header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 13px 14px; cursor: pointer;
+  }
+  .pc-header:hover { background: rgba(255,255,255,0.03); }
+
+  .pc-logo {
+    width: 32px; height: 32px; border-radius: 4px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--disp); font-size: 15px; flex-shrink: 0;
+  }
+  .shopee-logo { background: #ee4d2d; color: #fff; }
+  .lazada-logo { background: #0f146d; color: #fff; }
+  .tiktok-logo { background: #010101; color: #fff; border: 1px solid #333; }
+  .pl3-logo { background: var(--steel-dark); color: var(--ink); }
+
+  .pc-info { flex: 1; }
+  .pc-name { font-size: 13px; font-weight: 600; }
+  .pc-status { font-family: var(--mono); font-size: 10px; color: var(--steel-dark); margin-top: 2px; }
+  .pc-status.ok { color: var(--go-bright); }
+  .pc-toggle-ico { font-size: 12px; color: var(--steel-dark); transition: transform 0.2s; }
+  .pc-toggle-ico.open { transform: rotate(90deg); }
+
+  .pc-body {
+    padding: 14px 14px 16px;
+    border-top: 1px solid var(--line);
+    background: rgba(0,0,0,0.15);
+  }
+
+  .cx-field { margin-bottom: 10px; }
+  .cx-field label {
+    display: block; font-family: var(--mono); font-size: 10px;
+    color: var(--steel-dark); letter-spacing: 1px; text-transform: uppercase;
+    margin-bottom: 5px;
+  }
+  .cx-input {
+    width: 100%; background: var(--ink); border: 1px solid var(--steel-dark);
+    color: var(--paper); font-family: var(--mono); font-size: 12px;
+    padding: 9px 10px; outline: none;
+  }
+  .cx-input:focus { border-color: var(--amber); }
+  .cx-select { appearance: none; cursor: pointer; }
+
+  .cx-field-row { display: flex; gap: 8px; margin-top: 14px; }
+  .cx-field-row .btn { flex: 1; font-size: 11px; padding: 10px 8px; }
+
+  .cx-test-result {
+    margin-top: 10px; font-family: var(--mono); font-size: 11px;
+    padding: 8px 10px; display: none;
+    border-left: 3px solid var(--go-bright); background: rgba(124,179,66,0.08); color: var(--go-bright);
+  }
+  .cx-test-result.show { display: block; }
+  .cx-test-result.loading { border-color: var(--amber); background: rgba(255,140,26,0.06); color: var(--amber); }
+  .cx-test-result.error { border-color: var(--stop-bright); background: rgba(224,72,58,0.08); color: var(--stop-bright); }
+
+  .csv-drop-zone {
+    border: 2px dashed var(--steel-dark);
+    padding: 22px; text-align: center; cursor: pointer;
+    margin-top: 4px;
+  }
+  .csv-drop-zone:hover { border-color: var(--amber); }
+  .cdz-ico { font-size: 22px; margin-bottom: 6px; color: var(--steel-dark); }
+  .cdz-txt { font-size: 12px; margin-bottom: 4px; }
+  .cdz-sub { font-family: var(--mono); font-size: 10px; color: var(--steel-dark); }
+
+  /* Sync / import */
+  .sync-controls { display: flex; flex-direction: column; gap: 8px; }
+  .sync-btn { width: 100%; padding: 13px; font-size: 13px; margin-top: 4px; }
+
+  .sync-progress-wrap { margin-top: 16px; }
+  .sync-prog-bar { height: 6px; background: var(--line); overflow: hidden; }
+  .sync-prog-fill { height: 100%; background: var(--amber); width: 0%; transition: width 0.2s linear; }
+  .sync-prog-label { font-family: var(--mono); font-size: 11px; color: var(--amber); margin-top: 8px; }
+
+  .sync-result-wrap { margin-top: 16px; }
+  .sync-result-head {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+    padding-bottom: 12px; border-bottom: 1px solid var(--line); margin-bottom: 10px;
+  }
+  .srs-count { font-family: var(--disp); font-size: 18px; flex: 1; }
+  .srs-meta { font-family: var(--mono); font-size: 10px; color: var(--steel-dark); flex-basis: 100%; }
+  .srs-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .btn-sm { padding: 8px 12px; font-size: 11px; }
+
+  .sync-order-list { display: flex; flex-direction: column; gap: 6px; max-height: 420px; overflow-y: auto; }
+
+  .sync-order-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px; border: 1px solid var(--line);
+    cursor: pointer;
+  }
+  .sync-order-row:hover { background: rgba(255,255,255,0.025); }
+  .sync-order-row.selected { border-color: var(--go); background: rgba(124,179,66,0.07); }
+  .sync-order-row.already { border-color: var(--steel-dark); opacity: 0.5; cursor: default; }
+
+  .sor-check {
+    width: 18px; height: 18px; border: 2px solid var(--steel-dark);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; flex-shrink: 0;
+  }
+  .sync-order-row.selected .sor-check { border-color: var(--go-bright); background: var(--go-bright); color: var(--ink); }
+
+  .sor-platform-dot {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  }
+  .sor-platform-dot.shopee { background: #ee4d2d; }
+  .sor-platform-dot.lazada { background: #5f6eff; }
+  .sor-platform-dot.tiktok { background: #aaa; }
+  .sor-platform-dot\.3pl { background: var(--steel-dark); }
+
+  .sor-info { flex: 1; min-width: 0; }
+  .sor-awb { font-family: var(--mono); font-size: 12px; color: var(--go-bright); font-weight: 700; }
+  .sor-detail { font-family: var(--mono); font-size: 10px; color: var(--steel-dark); margin-top: 2px; }
+  .sor-items { font-family: var(--mono); font-size: 11px; color: var(--steel); flex-shrink: 0; }
+
+  .sor-badge {
+    font-family: var(--mono); font-size: 9px; padding: 3px 7px;
+    border: 1px solid currentColor; flex-shrink: 0;
+  }
+  .sor-badge.ready { color: var(--go-bright); }
+  .sor-badge.already-in { color: var(--steel-dark); }
+
+  .import-confirm-bar {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    margin-top: 14px; padding: 13px 14px;
+    background: rgba(74,124,63,0.12); border: 1px solid var(--go);
+  }
+  .icb-msg { font-family: var(--mono); font-size: 12px; color: var(--go-bright); }
+</style>
+</head>
+<body>
+
+<div id="app">
+
+  <div class="topbar">
+    <div class="brand">
+      <div class="brand-mark"><span>SR</span></div>
+      <div class="brand-text">
+        <div class="name">SmartRecord</div>
+        <div class="tag">Pack Station Demo</div>
+      </div>
+    </div>
+    <div class="station-id">
+      <div><span class="pulse-dot"></span><b>ONLINE</b> · STATION-07</div>
+      <div id="clock">--:--:--</div>
+    </div>
+  </div>
+
+  <div class="nav-tabs">
+    <button class="nav-tab active" id="navTabPack" onclick="switchView('pack')">
+      <span class="nt-ico">▣</span> สถานีแพค
+    </button>
+    <button class="nav-tab" id="navTabReports" onclick="switchView('reports')">
+      <span class="nt-ico">⌕</span> รายงาน / สืบค้น
+    </button>
+    <button class="nav-tab" id="navTabConnect" onclick="switchView('connect')">
+      <span class="nt-ico">⇄</span> เชื่อมต่อ / นำเข้าออเดอร์
+    </button>
+  </div>
+
+  <div class="stage-rail" id="stageRail">
+    <div class="stage active" data-stage="0">1 · สแกนออเดอร์</div>
+    <div class="stage" data-stage="1">2 · แพค + อัดวิดีโอ</div>
+    <div class="stage" data-stage="2">3 · บันทึกขึ้น NAS</div>
+    <div class="stage" data-stage="3">4 · เสร็จสิ้น</div>
+  </div>
+
+  <!-- PACK STATION VIEW -->
+  <div id="packView">
+
+  <!-- SCREEN 0: SCAN AWB -->
+  <div class="screen active" id="screen-0">
+    <div class="scan-hero">
+      <div class="eyebrow">เริ่มต้นออเดอร์ใหม่</div>
+      <h1>สแกนเลข AWB<br>หรือเลขออเดอร์</h1>
+      <p>เสียบ Barcode Scanner เข้า USB แล้วยิงบาร์โค้ดได้ทันที ระบบจะดึงรายการสินค้าและเริ่มอัดวิดีโออัตโนมัติ</p>
+    </div>
+
+    <div class="scan-input-wrap" id="scanWrap">
+      <div class="scan-icon">▣</div>
+      <input id="awbInput" type="text" placeholder="พิมพ์หรือยิงบาร์โค้ด AWB..." autofocus autocomplete="off">
+      <div class="hint-line">กด Enter หรือยิงสแกนเนอร์เพื่อเริ่ม</div>
+    </div>
+
+    <div class="demo-scan-btns">
+      <button class="chip-btn" onclick="demoScan('SPX-TH-88213940')">จำลองสแกน: SPX-TH-88213940 (Shopee)</button>
+      <button class="chip-btn" onclick="demoScan('LZD-2026-661820')">จำลองสแกน: LZD-2026-661820 (Lazada)</button>
+      <button class="chip-btn" onclick="demoScan('ORD-MANUAL-0451')">จำลองสแกน: ORD-MANUAL-0451 (ทั่วไป)</button>
+    </div>
+
+    <div class="device-check">
+      <div class="device-pill" id="pillCam"><span class="dot"></span><span>กล้อง</span></div>
+      <div class="device-pill ok"><span class="dot"></span><span>เครื่องพิมพ์ฉลาก</span></div>
+      <div class="device-pill ok"><span class="dot"></span><span>พนักงาน: สมชาย ป.</span></div>
+    </div>
+  </div>
+
+  <!-- SCREEN 1: PACKING -->
+  <div class="screen" id="screen-1">
+    <div class="pack-grid">
+      <div class="panel">
+        <div class="panel-head"><span>การอัดวิดีโอ</span><span id="orderLabel">—</span></div>
+        <div class="panel-body">
+          <div class="rec-frame">
+            <video id="webcamVideo" autoplay muted playsinline></video>
+            <div class="no-cam" id="noCamMsg" style="display:none;">
+              ⚠ ไม่พบกล้อง<br>กรุณาอนุญาตการเข้าถึงกล้องในเบราว์เซอร์
+            </div>
+            <div class="rec-badge" id="recBadge" style="display:none;"><span class="reddot"></span>REC</div>
+            <div class="rec-timer" id="recTimer">00:00</div>
+            <div class="order-id-overlay" id="orderOverlay">AWB: —</div>
+          </div>
+          <div class="order-meta">
+            ออเดอร์: <b id="metaOrder">—</b><br>
+            แพลตฟอร์ม: <b id="metaPlatform">—</b><br>
+            เริ่มอัด: <b id="metaStart">—</b><br>
+            พนักงาน: <b>สมชาย ป. (EMP-0012)</b>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><span>รายการสินค้า</span><span id="itemCount">0/0</span></div>
+        <div class="panel-body">
+          <div class="item-list" id="itemList"></div>
+
+          <div class="scan-bar">
+            <input id="itemScanInput" type="text" placeholder="ยิงบาร์โค้ดสินค้า หรือยิง AWB ซ้ำเพื่อปิดกล่อง..." autocomplete="off">
+            <button class="btn btn-go" onclick="manualScanItem()">สแกน</button>
+          </div>
+          <div class="scan-hint-row">
+            <span>ยิง SKU = นับสินค้า</span>
+            <span>ยิง <b id="hintAwb">AWB เดิม</b> ซ้ำ = ปิดกล่อง &amp; หยุดอัด</span>
+          </div>
+          <div class="flash-msg" id="flashMsg"></div>
+          <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+
+          <div class="finish-row">
+            <button class="btn btn-ghost" onclick="reportIssue()" style="flex:1;">⚠ รายงานปัญหา</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCREEN 2: UPLOADING TO NAS -->
+  <div class="screen" id="screen-2">
+    <div class="upload-wrap">
+      <div class="spin-icon"></div>
+      <h2>กำลังบันทึกขึ้น NAS</h2>
+      <div class="sub" id="uploadOrderLine">AWB: — · กำลังส่งไฟล์วิดีโอและข้อมูลออเดอร์</div>
+      <div class="upload-track"><div class="upload-fill" id="uploadFill"></div></div>
+      <div class="upload-pct" id="uploadPct">0%</div>
+      <div class="upload-steps">
+        <div class="ustep" id="ustep1"><span class="mk">○</span>หยุดบันทึกวิดีโอ</div>
+        <div class="ustep" id="ustep2"><span class="mk">○</span>เข้ารหัสและบีบอัดไฟล์</div>
+        <div class="ustep" id="ustep3"><span class="mk">○</span>ส่งไฟล์ไปยัง NAS (192.168.1.40)</div>
+        <div class="ustep" id="ustep4"><span class="mk">○</span>ผูกไฟล์กับเลขออเดอร์ในระบบ</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCREEN 3: COMPLETE -->
+  <div class="screen" id="screen-3">
+    <div class="complete-wrap">
+      <div class="complete-badge">✓</div>
+      <h2>แพคสำเร็จ</h2>
+      <div class="sub">วิดีโอถูกบันทึกและจัดเก็บเรียบร้อยแล้ว</div>
+
+      <div class="receipt">
+        <div class="rline"><span>เลขออเดอร์</span><span id="rOrder">—</span></div>
+        <div class="rline"><span>แพลตฟอร์ม</span><span id="rPlatform">—</span></div>
+        <div class="rline"><span>จำนวนชิ้น</span><span id="rItems">—</span></div>
+        <div class="rline"><span>เวลาที่ใช้แพค</span><span id="rDuration">—</span></div>
+        <div class="rline"><span>พนักงาน</span><span>สมชาย ป. (EMP-0012)</span></div>
+        <div class="rline"><span>ความยาวคลิป</span><span id="rClipLen">—</span></div>
+        <div class="rline"><span>ที่จัดเก็บ</span><span id="rStorage">NAS · 192.168.1.40</span></div>
+        <div class="rline"><span>สถานะ</span><span id="rStatus" style="color:var(--go-bright)">●  ตรวจสอบผ่าน</span></div>
+      </div>
+
+      <div class="link-box">
+        <input id="shareLink" readonly>
+        <button class="btn btn-go" onclick="copyLink()">คัดลอกลิงก์</button>
+      </div>
+      <div style="font-family:var(--mono); font-size:10px; color:var(--steel-dark); margin-top:8px;">
+        ลิงก์นี้ส่งให้ลูกค้าผ่าน SMS / Shopee Chat / Lazada Chat / Email ได้ทันที — ดูแบบสตรีมจากทุกอุปกรณ์
+      </div>
+
+      <div class="next-order-btn">
+        <button class="btn btn-go btn-block" onclick="resetFlow()">＋ แพคออเดอร์ถัดไป</button>
+      </div>
+    </div>
+  </div>
+
+  </div>
+  <!-- /PACK STATION VIEW -->
+
+  <!-- REPORTS / SEARCH VIEW -->
+  <div id="reportsView" style="display:none;">
+
+    <div class="rpt-header">
+      <div class="rpt-title">
+        <h1>รายงาน &amp; สืบค้นย้อนหลัง</h1>
+        <p>ค้นหาด้วยเลขคำสั่งซื้อหรือเลขพัสดุ ผลลัพธ์กรองทันทีขณะพิมพ์</p>
+      </div>
+      <div class="rpt-search-wrap">
+        <span class="rpt-search-ico">⌕</span>
+        <input id="rptSearch" type="text" placeholder="ค้นหาเลขคำสั่งซื้อ / เลขพัสดุ (AWB)..." autocomplete="off">
+      </div>
+    </div>
+
+    <div class="rpt-filters">
+      <select id="fltPlatform" class="rpt-select" onchange="applyFilters()">
+        <option value="">ทุกแพลตฟอร์ม</option>
+        <option value="Shopee">Shopee</option>
+        <option value="Lazada">Lazada</option>
+        <option value="ทั่วไป">ทั่วไป</option>
+      </select>
+      <select id="fltStatus" class="rpt-select" onchange="applyFilters()">
+        <option value="">ทุกสถานะ</option>
+        <option value="pass">ตรวจสอบผ่าน</option>
+        <option value="warn">ปิดก่อนสแกนครบ</option>
+      </select>
+      <select id="fltEmployee" class="rpt-select" onchange="applyFilters()">
+        <option value="">ทุกพนักงาน</option>
+      </select>
+      <select id="fltDate" class="rpt-select" onchange="applyFilters()">
+        <option value="">ทุกช่วงวันที่</option>
+        <option value="today">วันนี้</option>
+        <option value="week">7 วันล่าสุด</option>
+        <option value="month">30 วันล่าสุด</option>
+      </select>
+      <button class="chip-btn" onclick="clearFilters()">ล้างตัวกรอง</button>
+    </div>
+
+    <div class="rpt-summary" id="rptSummary"></div>
+
+    <div class="rpt-table-wrap">
+      <table class="rpt-table">
+        <thead>
+          <tr>
+            <th>เลข AWB / ออเดอร์</th>
+            <th>แพลตฟอร์ม</th>
+            <th>ผู้บันทึก</th>
+            <th>วันที่ / เวลา</th>
+            <th>ความยาวคลิป</th>
+            <th>ขนาดไฟล์</th>
+            <th>สถานะ</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="rptTableBody"></tbody>
+      </table>
+      <div class="rpt-empty" id="rptEmpty" style="display:none;">ไม่พบรายการที่ตรงกับการค้นหา</div>
+    </div>
+
+  </div>
+  <!-- /REPORTS VIEW -->
+
+  <!-- CONNECT / IMPORT ORDERS VIEW -->
+  <div id="connectView" style="display:none;">
+
+    <div class="cx-layout">
+
+      <!-- ══ LEFT: API CONNECTION SETTINGS ══ -->
+      <div class="cx-col">
+        <div class="cx-section-head">
+          <div class="cx-section-title">ตั้งค่าการเชื่อมต่อ API</div>
+          <div class="cx-section-sub">Admin เท่านั้น — ตั้งค่าครั้งเดียว ใช้ได้ตลอด</div>
+        </div>
+
+        <!-- Platform cards -->
+        <div class="platform-list" id="platformList">
+
+          <div class="platform-card" id="pc-shopee">
+            <div class="pc-header" onclick="togglePlatform('shopee')">
+              <div class="pc-logo shopee-logo">S</div>
+              <div class="pc-info">
+                <div class="pc-name">Shopee</div>
+                <div class="pc-status" id="pcs-shopee">ยังไม่ได้เชื่อมต่อ</div>
+              </div>
+              <div class="pc-toggle-ico" id="pct-shopee">▸</div>
+            </div>
+            <div class="pc-body" id="pcb-shopee" style="display:none;">
+              <div class="cx-field"><label>Partner ID</label><input class="cx-input" id="shopee-pid" placeholder="เช่น 1234567" type="text"></div>
+              <div class="cx-field"><label>Partner Key</label><input class="cx-input" id="shopee-pkey" placeholder="Partner Key จาก Shopee Open Platform" type="password"></div>
+              <div class="cx-field"><label>Shop ID</label><input class="cx-input" id="shopee-shopid" placeholder="Shop ID ของร้านคุณ" type="text"></div>
+              <div class="cx-field"><label>Access Token</label><input class="cx-input" id="shopee-token" placeholder="Access Token (ต่ออายุทุก 4 ชั่วโมง)" type="password"></div>
+              <div class="cx-field-row">
+                <button class="btn btn-ghost" onclick="testConnect('shopee')">▷ ทดสอบการเชื่อมต่อ</button>
+                <button class="btn btn-go" onclick="saveConnect('shopee')">บันทึก</button>
+              </div>
+              <div class="cx-test-result" id="cxr-shopee"></div>
+            </div>
+          </div>
+
+          <div class="platform-card" id="pc-lazada">
+            <div class="pc-header" onclick="togglePlatform('lazada')">
+              <div class="pc-logo lazada-logo">L</div>
+              <div class="pc-info">
+                <div class="pc-name">Lazada</div>
+                <div class="pc-status" id="pcs-lazada">ยังไม่ได้เชื่อมต่อ</div>
+              </div>
+              <div class="pc-toggle-ico" id="pct-lazada">▸</div>
+            </div>
+            <div class="pc-body" id="pcb-lazada" style="display:none;">
+              <div class="cx-field"><label>App Key</label><input class="cx-input" id="lazada-appkey" placeholder="App Key จาก Lazada Open Platform" type="text"></div>
+              <div class="cx-field"><label>App Secret</label><input class="cx-input" id="lazada-secret" placeholder="App Secret" type="password"></div>
+              <div class="cx-field"><label>Access Token</label><input class="cx-input" id="lazada-token" placeholder="Access Token" type="password"></div>
+              <div class="cx-field"><label>Region</label>
+                <select class="cx-input cx-select">
+                  <option value="th">Thailand (lazada.co.th)</option>
+                  <option value="sg">Singapore</option>
+                  <option value="my">Malaysia</option>
+                </select>
+              </div>
+              <div class="cx-field-row">
+                <button class="btn btn-ghost" onclick="testConnect('lazada')">▷ ทดสอบการเชื่อมต่อ</button>
+                <button class="btn btn-go" onclick="saveConnect('lazada')">บันทึก</button>
+              </div>
+              <div class="cx-test-result" id="cxr-lazada"></div>
+            </div>
+          </div>
+
+          <div class="platform-card" id="pc-tiktok">
+            <div class="pc-header" onclick="togglePlatform('tiktok')">
+              <div class="pc-logo tiktok-logo">T</div>
+              <div class="pc-info">
+                <div class="pc-name">TikTok Shop</div>
+                <div class="pc-status" id="pcs-tiktok">ยังไม่ได้เชื่อมต่อ</div>
+              </div>
+              <div class="pc-toggle-ico" id="pct-tiktok">▸</div>
+            </div>
+            <div class="pc-body" id="pcb-tiktok" style="display:none;">
+              <div class="cx-field"><label>App Key</label><input class="cx-input" id="tiktok-appkey" placeholder="App Key จาก TikTok Shop Open Platform" type="text"></div>
+              <div class="cx-field"><label>App Secret</label><input class="cx-input" id="tiktok-secret" placeholder="App Secret" type="password"></div>
+              <div class="cx-field"><label>Access Token</label><input class="cx-input" id="tiktok-token" placeholder="Access Token" type="password"></div>
+              <div class="cx-field"><label>Shop Cipher</label><input class="cx-input" id="tiktok-cipher" placeholder="Shop Cipher (ได้จาก OAuth callback)" type="text"></div>
+              <div class="cx-field-row">
+                <button class="btn btn-ghost" onclick="testConnect('tiktok')">▷ ทดสอบการเชื่อมต่อ</button>
+                <button class="btn btn-go" onclick="saveConnect('tiktok')">บันทึก</button>
+              </div>
+              <div class="cx-test-result" id="cxr-tiktok"></div>
+            </div>
+          </div>
+
+          <div class="platform-card" id="pc-3pl">
+            <div class="pc-header" onclick="togglePlatform('3pl')">
+              <div class="pc-logo pl3-logo">3</div>
+              <div class="pc-info">
+                <div class="pc-name">คลังสินค้า / 3PL ทั่วไป</div>
+                <div class="pc-status" id="pcs-3pl">ยังไม่ได้เชื่อมต่อ</div>
+              </div>
+              <div class="pc-toggle-ico" id="pct-3pl">▸</div>
+            </div>
+            <div class="pc-body" id="pcb-3pl" style="display:none;">
+              <div class="cx-field"><label>ประเภทการเชื่อมต่อ</label>
+                <select class="cx-input cx-select" id="3pl-type" onchange="toggle3plType()">
+                  <option value="api">REST API Endpoint</option>
+                  <option value="csv">CSV / Excel Import</option>
+                  <option value="webhook">Webhook Push</option>
+                </select>
+              </div>
+              <div id="3pl-api-fields">
+                <div class="cx-field"><label>Endpoint URL</label><input class="cx-input" id="3pl-url" placeholder="https://wms.yourcompany.com/api/orders" type="text"></div>
+                <div class="cx-field"><label>API Key / Bearer Token</label><input class="cx-input" id="3pl-apikey" placeholder="Authorization token" type="password"></div>
+                <div class="cx-field"><label>Order Status Filter</label>
+                  <select class="cx-input cx-select">
+                    <option>PENDING_PACK</option>
+                    <option>READY_TO_SHIP</option>
+                    <option>ALL</option>
+                  </select>
+                </div>
+              </div>
+              <div id="3pl-csv-fields" style="display:none;">
+                <div class="cx-field">
+                  <label>อัปโหลดไฟล์ CSV / Excel</label>
+                  <div class="csv-drop-zone" id="csvDropZone" onclick="document.getElementById('csvFileInput').click()">
+                    <div class="cdz-ico">⬆</div>
+                    <div class="cdz-txt">คลิกหรือลากไฟล์มาวาง</div>
+                    <div class="cdz-sub">.csv, .xlsx, .xls รองรับ column: AWB, SKU, ProductName, Qty</div>
+                  </div>
+                  <input type="file" id="csvFileInput" accept=".csv,.xlsx,.xls" style="display:none;" onchange="handleCsvFile(this)">
+                </div>
+              </div>
+              <div class="cx-field-row">
+                <button class="btn btn-ghost" onclick="testConnect('3pl')" id="btn-test-3pl">▷ ทดสอบการเชื่อมต่อ</button>
+                <button class="btn btn-go" onclick="saveConnect('3pl')">บันทึก</button>
+              </div>
+              <div class="cx-test-result" id="cxr-3pl"></div>
+            </div>
+          </div>
+
+        </div><!-- /platform-list -->
+      </div><!-- /cx-col left -->
+
+      <!-- ══ RIGHT: SYNC & IMPORT ORDERS ══ -->
+      <div class="cx-col">
+        <div class="cx-section-head">
+          <div class="cx-section-title">นำเข้าออเดอร์</div>
+          <div class="cx-section-sub">พนักงานกด Sync เพื่อดึงออเดอร์รอแพคมาใส่ระบบ</div>
+        </div>
+
+        <div class="sync-controls">
+          <div class="cx-field"><label>แพลตฟอร์ม</label>
+            <select class="cx-input cx-select" id="syncPlatform">
+              <option value="all">ทุกแพลตฟอร์ม</option>
+              <option value="shopee">Shopee</option>
+              <option value="lazada">Lazada</option>
+              <option value="tiktok">TikTok Shop</option>
+              <option value="3pl">คลังสินค้า / 3PL</option>
+            </select>
+          </div>
+          <div class="cx-field"><label>ช่วงวันที่</label>
+            <select class="cx-input cx-select" id="syncDateRange">
+              <option value="today">วันนี้</option>
+              <option value="yesterday">เมื่อวาน</option>
+              <option value="3d">3 วันล่าสุด</option>
+              <option value="week">7 วันล่าสุด</option>
+            </select>
+          </div>
+          <div class="cx-field"><label>สถานะออเดอร์</label>
+            <select class="cx-input cx-select" id="syncStatus">
+              <option value="ready">Ready to Ship</option>
+              <option value="pending">Pending</option>
+              <option value="all">ทั้งหมด</option>
+            </select>
+          </div>
+          <button class="btn btn-go sync-btn" id="syncBtn" onclick="runSync()">
+            ⟳ Sync ออเดอร์ตอนนี้
+          </button>
+        </div>
+
+        <div class="sync-progress-wrap" id="syncProgressWrap" style="display:none;">
+          <div class="sync-prog-bar"><div class="sync-prog-fill" id="syncProgFill"></div></div>
+          <div class="sync-prog-label" id="syncProgLabel">กำลังเชื่อมต่อ...</div>
+        </div>
+
+        <div class="sync-result-wrap" id="syncResultWrap" style="display:none;">
+          <div class="sync-result-head">
+            <div class="srs-count" id="srsCount">0 ออเดอร์</div>
+            <div class="srs-meta" id="srsMeta">—</div>
+            <div class="srs-actions">
+              <button class="chip-btn" onclick="selectAllOrders(true)">เลือกทั้งหมด</button>
+              <button class="chip-btn" onclick="selectAllOrders(false)">ยกเลิกเลือก</button>
+              <button class="btn btn-go" id="importSelectedBtn" onclick="importSelected()" disabled>
+                นำเข้าที่เลือก
+              </button>
+            </div>
+          </div>
+
+          <div class="sync-order-list" id="syncOrderList"></div>
+
+          <div class="import-confirm-bar" id="importConfirmBar" style="display:none;">
+            <span class="icb-msg" id="icbMsg">—</span>
+            <button class="btn btn-go btn-sm" onclick="goPackAfterImport()">→ ไปหน้าสถานีแพค</button>
+          </div>
+        </div>
+
+      </div><!-- /cx-col right -->
+    </div><!-- /cx-layout -->
+  </div>
+  <!-- /CONNECT VIEW -->
+
+</div>
+
+<!-- CONFIRM MODAL: incomplete close -->
+<div class="modal-backdrop" id="confirmModal">
+  <div class="modal-box">
+    <div class="modal-icon">⚠</div>
+    <h3>สินค้ายังสแกนไม่ครบ</h3>
+    <p>ตรวจพบว่ายังสแกนสินค้าไม่ครบตามรายการออเดอร์ หากปิดกล่องตอนนี้ ระบบจะบันทึกไว้ว่าออเดอร์นี้ "ปิดกล่องก่อนสแกนครบ"</p>
+    <div class="missing-list" id="missingList"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="cancelClose()">กลับไปสแกนต่อ</button>
+      <button class="btn btn-stop" onclick="confirmForceClose()">ยืนยันปิดกล่อง</button>
+    </div>
+  </div>
+</div>
+
+<!-- RECORD DETAIL SLIDE-OVER -->
+<div class="detail-backdrop" id="detailBackdrop" onclick="closeDetailIfBackdrop(event)">
+  <div class="detail-panel">
+    <div class="detail-head">
+      <div>
+        <div class="detail-eyebrow">รายละเอียดการบันทึก</div>
+        <h3 id="detAwb">—</h3>
+      </div>
+      <button class="detail-close" onclick="closeDetail()">✕</button>
+    </div>
+
+    <div class="detail-video">
+      <div class="detail-video-mock" id="detVideoMock">
+        <span class="play-tri">▶</span>
+        <div class="dv-label">คลิกเพื่อดูสตรีม (จำลอง)</div>
+      </div>
+      <div class="detail-video-meta">
+        <span id="detClipLen">00:00</span> · <span id="detFileSize">— MB</span>
+      </div>
+    </div>
+
+    <div class="detail-grid">
+      <div class="dg-row"><span>เลข AWB / ออเดอร์</span><b id="detOrder">—</b></div>
+      <div class="dg-row"><span>แพลตฟอร์ม</span><b id="detPlatform">—</b></div>
+      <div class="dg-row"><span>ผู้บันทึก (พนักงาน)</span><b id="detEmployee">—</b></div>
+      <div class="dg-row"><span>วันที่ / เวลาเริ่ม</span><b id="detTime">—</b></div>
+      <div class="dg-row"><span>ระยะเวลาแพค</span><b id="detDuration">—</b></div>
+      <div class="dg-row"><span>ขนาดไฟล์</span><b id="detSize">—</b></div>
+      <div class="dg-row"><span>สถานี</span><b>STATION-07</b></div>
+      <div class="dg-row"><span>จัดเก็บที่</span><b>NAS · 192.168.1.40</b></div>
+      <div class="dg-row"><span>สถานะ</span><b id="detStatus">—</b></div>
+    </div>
+
+    <div class="detail-link-box">
+      <input id="detShareLink" readonly>
+      <button class="btn btn-go" onclick="copyDetailLink()">คัดลอกลิงก์</button>
+    </div>
+    <div class="detail-link-hint">ลิงก์ดูแบบสตรีมได้ทันทีจาก iOS, Android และ PC — ไม่ต้องติดตั้งแอป</div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  // ---------- DATA ----------
+  const ORDER_DB = {
+    'SPX-TH-88213940': {
+      platform: 'Shopee', items: [
+        {sku:'SKU-PWD-001', name:'พาวเดอร์เคสกันกระแทก สีดำ', qty:1, code:'8801234567890'},
+        {sku:'SKU-CBL-014', name:'สายชาร์จ USB-C 1.5m', qty:2, code:'8801234567906'},
+        {sku:'SKU-PRO-220', name:'ฟิล์มกระจกกันรอย iPhone 15', qty:1, code:'8801234567913'},
+      ]
+    },
+    'LZD-2026-661820': {
+      platform: 'Lazada', items: [
+        {sku:'SKU-SHO-077', name:'รองเท้าผ้าใบลำลอง สีขาว Size 42', qty:1, code:'8809988776655'},
+        {sku:'SKU-SOK-003', name:'ถุงเท้าข้อสั้น (แพ็ค 3 คู่)', qty:1, code:'8809988776662'},
+      ]
+    },
+    'ORD-MANUAL-0451': {
+      platform: 'ทั่วไป', items: [
+        {sku:'SKU-MUG-009', name:'แก้วเซรามิคลายกราฟิก', qty:3, code:'8800011122233'},
+        {sku:'SKU-BOX-441', name:'กล่องของขวัญพร้อมโบว์', qty:1, code:'8800011122240'},
+      ]
+    }
+  };
+
+  let currentOrder = null, currentItems = [], scannedSet = new Set();
+  let mediaStream = null, recTimerInterval = null, recSeconds = 0, packStartTime = null;
+
+  // ---------- RECORDS STORE (for Reports / Search view) ----------
+  const EMPLOYEES = ['สมชาย ป. (EMP-0012)', 'วราภรณ์ จ. (EMP-0031)', 'อนุชา ส. (EMP-0008)', 'นภัสสร ก. (EMP-0019)'];
+
+  function seedHistoricalRecords(){
+    const platforms = ['Shopee','Lazada','ทั่วไป'];
+    const prefixes = {Shopee:'SPX-TH-', Lazada:'LZD-2026-', 'ทั่วไป':'ORD-MANUAL-'};
+    const recs = [];
+    const now = new Date();
+    for(let i=0; i<26; i++){
+      const platform = platforms[i % 3];
+      const awb = prefixes[platform] + (10000000 + Math.floor(Math.random()*89999999)).toString().slice(0,8);
+      const daysAgo = Math.floor(Math.random()*29);
+      const ts = new Date(now.getTime() - daysAgo*86400000 - Math.floor(Math.random()*8)*3600000);
+      const durSec = 35 + Math.floor(Math.random()*160);
+      const mm = String(Math.floor(durSec/60)).padStart(2,'0');
+      const ss = String(durSec%60).padStart(2,'0');
+      const sizeMb = (durSec * 1.35 + Math.random()*6).toFixed(1);
+      const warn = Math.random() < 0.08;
+      recs.push({
+        id: 'rec_' + i,
+        awb, platform,
+        employee: EMPLOYEES[Math.floor(Math.random()*EMPLOYEES.length)],
+        timestamp: ts,
+        durationLabel: `${mm}:${ss}`,
+        durationSec: durSec,
+        sizeMb: parseFloat(sizeMb),
+        itemSummary: (2+Math.floor(Math.random()*4)) + ' รายการ',
+        status: warn ? 'warn' : 'pass',
+        link: 'https://clip.smartrecord.app/v/' + Math.random().toString(36).slice(2,9)
+      });
+    }
+    return recs.sort((a,b)=> b.timestamp - a.timestamp);
+  }
+
+  let RECORDS = seedHistoricalRecords();
+
+
+  // ---------- CLOCK ----------
+  function tickClock(){
+    document.getElementById('clock').textContent = new Date().toLocaleTimeString('th-TH', {hour12:false});
+  }
+  setInterval(tickClock, 1000); tickClock();
+
+  // ---------- TOAST ----------
+  function toast(msg){
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(t._tm);
+    t._tm = setTimeout(()=>t.classList.remove('show'), 2200);
+  }
+
+  // ---------- STAGE NAV ----------
+  function goStage(n){
+    document.querySelectorAll('.screen').forEach((s,i)=> s.classList.toggle('active', i===n));
+    document.querySelectorAll('.stage-rail .stage').forEach((s,i)=>{
+      s.classList.toggle('active', i===n);
+      s.classList.toggle('done', i<n);
+    });
+  }
+
+  // ---------- SCREEN 0: SCAN AWB ----------
+  const awbInput = document.getElementById('awbInput');
+  awbInput.addEventListener('keydown', (e)=>{
+    if(e.key === 'Enter' && awbInput.value.trim()){
+      startOrder(awbInput.value.trim());
+    }
+  });
+  function demoScan(code){ awbInput.value = code; startOrder(code); }
+
+  function startOrder(code){
+    let order = ORDER_DB[code];
+    if(!order){
+      // unknown code -> generate a generic mock order so any scanner input works
+      order = { platform: 'ทั่วไป', items: [
+        {sku:'SKU-GEN-001', name:'สินค้าตัวอย่าง A', qty:1, code:'0000000000001'},
+        {sku:'SKU-GEN-002', name:'สินค้าตัวอย่าง B', qty:2, code:'0000000000002'},
+      ]};
+    }
+    currentOrder = { id: code, platform: order.platform };
+    currentItems = JSON.parse(JSON.stringify(order.items));
+    scannedSet = new Set();
+    packStartTime = new Date();
+
+    document.getElementById('orderLabel').textContent = code;
+    document.getElementById('orderOverlay').textContent = 'AWB: ' + code;
+    document.getElementById('metaOrder').textContent = code;
+    document.getElementById('metaPlatform').textContent = order.platform;
+    document.getElementById('metaStart').textContent = packStartTime.toLocaleTimeString('th-TH',{hour12:false});
+    document.getElementById('hintAwb').textContent = code;
+
+    renderItemList();
+    goStage(1);
+    startCamera();
+    awbInput.value = '';
+    setTimeout(()=> document.getElementById('itemScanInput').focus(), 300);
+  }
+
+  // ---------- CAMERA ----------
+  async function startCamera(){
+    const video = document.getElementById('webcamVideo');
+    const noCam = document.getElementById('noCamMsg');
+    const recBadge = document.getElementById('recBadge');
+    try{
+      mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio:false });
+      video.srcObject = mediaStream;
+      noCam.style.display = 'none';
+      recBadge.style.display = 'flex';
+      document.getElementById('pillCam').classList.add('ok');
+      recSeconds = 0;
+      clearInterval(recTimerInterval);
+      recTimerInterval = setInterval(()=>{
+        recSeconds++;
+        const m = String(Math.floor(recSeconds/60)).padStart(2,'0');
+        const s = String(recSeconds%60).padStart(2,'0');
+        document.getElementById('recTimer').textContent = `${m}:${s}`;
+      }, 1000);
+    }catch(err){
+      noCam.style.display = 'flex';
+      recBadge.style.display = 'none';
+      toast('ไม่สามารถเข้าถึงกล้องได้ — ตรวจสอบสิทธิ์เบราว์เซอร์');
+    }
+  }
+  function stopCamera(){
+    if(mediaStream){ mediaStream.getTracks().forEach(t=>t.stop()); mediaStream = null; }
+    clearInterval(recTimerInterval);
+  }
+
+  // ---------- ITEM LIST / SCAN ----------
+  function renderItemList(){
+    const list = document.getElementById('itemList');
+    list.innerHTML = '';
+    currentItems.forEach((item, idx)=>{
+      const scannedQty = scannedSet.has(idx) ? item.qty : 0;
+      const row = document.createElement('div');
+      row.className = 'item-row' + (scannedQty>0 ? ' checked':'');
+      row.innerHTML = `
+        <div class="check">${scannedQty>0 ? '✓':''}</div>
+        <div class="info">
+          <div class="pname">${item.name}</div>
+          <div class="psku">${item.sku} · ${item.code}</div>
+        </div>
+        <div class="qty">${scannedQty}/${item.qty}</div>
+      `;
+      list.appendChild(row);
+    });
+    const total = currentItems.length;
+    const done = scannedSet.size;
+    document.getElementById('itemCount').textContent = `${done}/${total}`;
+    document.getElementById('progressFill').style.width = total? (done/total*100)+'%' : '0%';
+  }
+
+  function flashMessage(msg, isError){
+    const el = document.getElementById('flashMsg');
+    el.textContent = msg;
+    el.classList.remove('show','error');
+    void el.offsetWidth;
+    el.classList.add('show');
+    if(isError) el.classList.add('error');
+    clearTimeout(el._tm);
+    el._tm = setTimeout(()=> el.classList.remove('show'), 2400);
+  }
+
+  function processScan(code){
+    // 1) check if this matches the CURRENT order's AWB -> treat as "close box" command
+    if(currentOrder && code === currentOrder.id){
+      attemptClose();
+      return;
+    }
+
+    // 2) otherwise treat as an item barcode
+    const idx = currentItems.findIndex(i => i.code === code || i.sku.toLowerCase() === code.toLowerCase());
+    if(idx === -1){
+      flashMessage('✕ ไม่พบสินค้านี้ในออเดอร์ — ตรวจสอบบาร์โค้ดอีกครั้ง', true);
+      return;
+    }
+    if(scannedSet.has(idx)){
+      flashMessage('⚠ สแกนซ้ำ — สินค้านี้ถูกบันทึกแล้ว', true);
+      return;
+    }
+    scannedSet.add(idx);
+    flashMessage(`✓ บันทึก: ${currentItems[idx].name}`, false);
+    renderItemList();
+  }
+
+  const itemScanInput = document.getElementById('itemScanInput');
+  itemScanInput.addEventListener('keydown', (e)=>{
+    if(e.key === 'Enter' && itemScanInput.value.trim()){
+      processScan(itemScanInput.value.trim());
+      itemScanInput.value = '';
+    }
+  });
+  function manualScanItem(){
+    if(itemScanInput.value.trim()){
+      processScan(itemScanInput.value.trim());
+      itemScanInput.value = '';
+      itemScanInput.focus();
+    }else{
+      // convenience: scan a random un-scanned item for the demo
+      const remaining = currentItems.map((it,i)=>i).filter(i=>!scannedSet.has(i));
+      if(remaining.length){
+        processScan(currentItems[remaining[0]].code);
+      } else if(currentOrder){
+        // all items scanned and no input -> simulate re-scanning the AWB to close
+        processScan(currentOrder.id);
+      }
+    }
+  }
+
+  function reportIssue(){
+    toast('เปิดหน้าต่างรายงานปัญหา (จัดผิด / ไม่ครบ) — บันทึกพร้อมไทม์สแตมป์ในคลิป');
+  }
+
+  // ---------- CLOSE BOX (triggered by re-scanning the AWB) ----------
+  function attemptClose(){
+    const total = currentItems.length;
+    const done = scannedSet.size;
+    if(done < total){
+      // show confirm modal listing what's missing
+      const missing = currentItems
+        .map((it,idx)=> scannedSet.has(idx) ? null : `· ${it.name} (${it.sku})`)
+        .filter(Boolean);
+      document.getElementById('missingList').innerHTML = missing.join('<br>');
+      document.getElementById('confirmModal').classList.add('show');
+      return;
+    }
+    closeBox(false);
+  }
+
+  function cancelClose(){
+    document.getElementById('confirmModal').classList.remove('show');
+    itemScanInput.focus();
+  }
+
+  function confirmForceClose(){
+    document.getElementById('confirmModal').classList.remove('show');
+    closeBox(true);
+  }
+
+  let closedWithMissing = false;
+
+  function closeBox(forced){
+    closedWithMissing = forced;
+    stopCamera();
+    goStage(2);
+    runUploadSimulation();
+  }
+
+  // ---------- UPLOAD TO NAS SIMULATION ----------
+  function runUploadSimulation(){
+    document.getElementById('uploadOrderLine').textContent =
+      `AWB: ${currentOrder.id} · กำลังส่งไฟล์วิดีโอและข้อมูลออเดอร์`;
+    const fill = document.getElementById('uploadFill');
+    const pct = document.getElementById('uploadPct');
+    const steps = ['ustep1','ustep2','ustep3','ustep4'].map(id=>document.getElementById(id));
+    steps.forEach(s=>{ s.classList.remove('active','done'); s.querySelector('.mk').textContent='○'; });
+    fill.style.width = '0%';
+    pct.textContent = '0%';
+
+    let p = 0;
+    const stepThresholds = [15, 40, 85, 100];
+    let stepIdx = 0;
+    steps[0].classList.add('active');
+    steps[0].querySelector('.mk').textContent = '●';
+
+    const iv = setInterval(()=>{
+      p += Math.random()*9 + 4;
+      if(p > 100) p = 100;
+      fill.style.width = p + '%';
+      pct.textContent = Math.round(p) + '%';
+
+      while(stepIdx < stepThresholds.length && p >= stepThresholds[stepIdx]){
+        steps[stepIdx].classList.remove('active');
+        steps[stepIdx].classList.add('done');
+        steps[stepIdx].querySelector('.mk').textContent = '✓';
+        stepIdx++;
+        if(stepIdx < steps.length){
+          steps[stepIdx].classList.add('active');
+          steps[stepIdx].querySelector('.mk').textContent = '●';
+        }
+      }
+
+      if(p >= 100){
+        clearInterval(iv);
+        setTimeout(finishPacking, 450);
+      }
+    }, 220);
+  }
+
+  // ---------- FINISH ----------
+  function finishPacking(){
+    const endTime = new Date();
+    const durSec = Math.round((endTime - packStartTime)/1000);
+    const mm = String(Math.floor(durSec/60)).padStart(2,'0');
+    const ss = String(durSec%60).padStart(2,'0');
+
+    document.getElementById('rOrder').textContent = currentOrder.id;
+    document.getElementById('rPlatform').textContent = currentOrder.platform;
+    document.getElementById('rItems').textContent =
+      scannedSet.size + '/' + currentItems.length + ' รายการ (' +
+      currentItems.reduce((a,i,idx)=>a+(scannedSet.has(idx)?i.qty:0),0) + ' ชิ้น)';
+    document.getElementById('rDuration').textContent = `${mm}:${ss} น.`;
+    document.getElementById('rClipLen').textContent = `${mm}:${ss} น.`;
+
+    const statusEl = document.getElementById('rStatus');
+    if(closedWithMissing){
+      statusEl.innerHTML = '●  ปิดกล่องก่อนสแกนครบ';
+      statusEl.style.color = 'var(--warn-bright)';
+    } else {
+      statusEl.innerHTML = '●  ตรวจสอบผ่าน';
+      statusEl.style.color = 'var(--go-bright)';
+    }
+
+    const fakeHash = Math.random().toString(36).slice(2,9);
+    const link = `https://clip.smartrecord.app/v/${fakeHash}`;
+    document.getElementById('shareLink').value = link;
+
+    // Push this real completed pack into the RECORDS store -> shows up instantly in Reports/Search
+    const sizeMb = parseFloat((durSec * 1.35 + Math.random()*5).toFixed(1));
+    RECORDS.unshift({
+      id: 'rec_live_' + Date.now(),
+      awb: currentOrder.id,
+      platform: currentOrder.platform,
+      employee: 'สมชาย ป. (EMP-0012)',
+      timestamp: packStartTime,
+      durationLabel: `${mm}:${ss}`,
+      durationSec: durSec,
+      sizeMb: sizeMb,
+      itemSummary: scannedSet.size + '/' + currentItems.length + ' รายการ',
+      status: closedWithMissing ? 'warn' : 'pass',
+      link: link
+    });
+
+    goStage(3);
+  }
+
+  function copyLink(){
+    const input = document.getElementById('shareLink');
+    input.select();
+    document.execCommand('copy');
+    toast('คัดลอกลิงก์แล้ว — พร้อมส่งให้ลูกค้า');
+  }
+
+  function resetFlow(){
+    currentOrder = null; currentItems = []; scannedSet = new Set(); closedWithMissing = false;
+    document.getElementById('recTimer').textContent = '00:00';
+    document.getElementById('flashMsg').classList.remove('show');
+    goStage(0);
+    setTimeout(()=> awbInput.focus(), 200);
+  }
+
+  // initial camera permission probe to light up pill
+  navigator.mediaDevices?.getUserMedia({video:true}).then(s=>{
+    s.getTracks().forEach(t=>t.stop());
+    document.getElementById('pillCam').classList.add('ok');
+  }).catch(()=>{});
+
+  // ===================== NAV SWITCH =====================
+  function switchView(view){
+    const packView = document.getElementById('packView');
+    const reportsView = document.getElementById('reportsView');
+    const connectView = document.getElementById('connectView');
+    const stageRail = document.getElementById('stageRail');
+    const tabPack = document.getElementById('navTabPack');
+    const tabReports = document.getElementById('navTabReports');
+    const tabConnect = document.getElementById('navTabConnect');
+
+    packView.style.display = 'none';
+    reportsView.style.display = 'none';
+    connectView.style.display = 'none';
+    stageRail.style.display = 'none';
+    [tabPack, tabReports, tabConnect].forEach(t => t.classList.remove('active'));
+
+    if(view === 'pack'){
+      packView.style.display = '';
+      stageRail.style.display = '';
+      tabPack.classList.add('active');
+    } else if(view === 'reports'){
+      reportsView.style.display = '';
+      tabReports.classList.add('active');
+      populateEmployeeFilter();
+      renderReportsTable(RECORDS);
+      setTimeout(()=> document.getElementById('rptSearch').focus(), 100);
+    } else {
+      connectView.style.display = '';
+      tabConnect.classList.add('active');
+    }
+  }
+
+  // ===================== REPORTS / SEARCH =====================
+  function populateEmployeeFilter(){
+    const sel = document.getElementById('fltEmployee');
+    if(sel.options.length > 1) return; // already populated
+    EMPLOYEES.forEach(emp=>{
+      const opt = document.createElement('option');
+      opt.value = emp; opt.textContent = emp;
+      sel.appendChild(opt);
+    });
+  }
+
+  function fmtDateTime(d){
+    return d.toLocaleDateString('th-TH', {day:'2-digit', month:'2-digit', year:'2-digit'}) +
+      ' ' + d.toLocaleTimeString('th-TH', {hour12:false, hour:'2-digit', minute:'2-digit'});
+  }
+
+  function matchesFilters(rec, q, platform, status, employee, dateRange){
+    if(q){
+      const hay = (rec.awb + ' ' + rec.platform).toLowerCase();
+      if(!hay.includes(q.toLowerCase())) return false;
+    }
+    if(platform && rec.platform !== platform) return false;
+    if(status && rec.status !== status) return false;
+    if(employee && rec.employee !== employee) return false;
+    if(dateRange){
+      const now = new Date();
+      const diffDays = (now - rec.timestamp) / 86400000;
+      if(dateRange === 'today' && diffDays > 1) return false;
+      if(dateRange === 'week' && diffDays > 7) return false;
+      if(dateRange === 'month' && diffDays > 30) return false;
+    }
+    return true;
+  }
+
+  function applyFilters(){
+    const q = document.getElementById('rptSearch').value.trim();
+    const platform = document.getElementById('fltPlatform').value;
+    const status = document.getElementById('fltStatus').value;
+    const employee = document.getElementById('fltEmployee').value;
+    const dateRange = document.getElementById('fltDate').value;
+    const filtered = RECORDS.filter(r => matchesFilters(r, q, platform, status, employee, dateRange));
+    renderReportsTable(filtered);
+  }
+
+  function clearFilters(){
+    document.getElementById('rptSearch').value = '';
+    document.getElementById('fltPlatform').value = '';
+    document.getElementById('fltStatus').value = '';
+    document.getElementById('fltEmployee').value = '';
+    document.getElementById('fltDate').value = '';
+    renderReportsTable(RECORDS);
+  }
+
+  document.getElementById('rptSearch').addEventListener('input', applyFilters);
+
+  function renderReportsTable(list){
+    const tbody = document.getElementById('rptTableBody');
+    const empty = document.getElementById('rptEmpty');
+    const summary = document.getElementById('rptSummary');
+    tbody.innerHTML = '';
+
+    summary.innerHTML = `พบ <b>${list.length}</b> รายการ จากทั้งหมด <b>${RECORDS.length}</b> รายการในระบบ`;
+
+    if(list.length === 0){
+      empty.style.display = 'block';
+      return;
+    }
+    empty.style.display = 'none';
+
+    list.forEach(rec=>{
+      const tr = document.createElement('tr');
+      tr.onclick = ()=> openDetail(rec.id);
+      const statusLabel = rec.status === 'pass' ? '● ผ่าน' : '● ปิดก่อนครบ';
+      const statusClass = rec.status === 'pass' ? 'pass' : 'warn';
+      tr.innerHTML = `
+        <td class="td-awb">${rec.awb}</td>
+        <td class="td-mono">${rec.platform}</td>
+        <td class="td-mono">${rec.employee}</td>
+        <td class="td-mono">${fmtDateTime(rec.timestamp)}</td>
+        <td class="td-mono">${rec.durationLabel}</td>
+        <td class="td-mono">${rec.sizeMb} MB</td>
+        <td><span class="status-pill ${statusClass}">${statusLabel}</span></td>
+        <td>
+          <div class="row-actions">
+            <button class="icon-btn" onclick="event.stopPropagation(); openDetail('${rec.id}')">ดูคลิป</button>
+            <button class="icon-btn" onclick="event.stopPropagation(); copyRecordLink('${rec.id}')">คัดลอก</button>
+          </div>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  // ===================== DETAIL SLIDE-OVER =====================
+  function openDetail(recId){
+    const rec = RECORDS.find(r => r.id === recId);
+    if(!rec) return;
+
+    document.getElementById('detAwb').textContent = rec.awb;
+    document.getElementById('detOrder').textContent = rec.awb;
+    document.getElementById('detPlatform').textContent = rec.platform;
+    document.getElementById('detEmployee').textContent = rec.employee;
+    document.getElementById('detTime').textContent = fmtDateTime(rec.timestamp);
+    document.getElementById('detDuration').textContent = rec.durationLabel + ' น.';
+    document.getElementById('detSize').textContent = rec.sizeMb + ' MB';
+    document.getElementById('detClipLen').textContent = rec.durationLabel;
+    document.getElementById('detFileSize').textContent = rec.sizeMb + ' MB';
+    document.getElementById('detShareLink').value = rec.link;
+
+    const statusEl = document.getElementById('detStatus');
+    if(rec.status === 'pass'){
+      statusEl.innerHTML = '●  ตรวจสอบผ่าน';
+      statusEl.style.color = 'var(--go-bright)';
+    } else {
+      statusEl.innerHTML = '●  ปิดก่อนสแกนครบ';
+      statusEl.style.color = 'var(--warn-bright)';
+    }
+
+    document.getElementById('detailBackdrop').classList.add('show');
+    document.getElementById('detailBackdrop').dataset.activeRec = recId;
+  }
+
+  function closeDetail(){
+    document.getElementById('detailBackdrop').classList.remove('show');
+  }
+
+  function closeDetailIfBackdrop(e){
+    if(e.target.id === 'detailBackdrop') closeDetail();
+  }
+
+  function copyDetailLink(){
+    const input = document.getElementById('detShareLink');
+    input.select();
+    document.execCommand('copy');
+    toast('คัดลอกลิงก์แล้ว — พร้อมส่งให้ลูกค้า');
+  }
+
+  function copyRecordLink(recId){
+    const rec = RECORDS.find(r => r.id === recId);
+    if(!rec) return;
+    navigator.clipboard?.writeText(rec.link).catch(()=>{});
+    toast('คัดลอกลิงก์: ' + rec.awb);
+  }
+
+  // mock "play" interaction on the detail video block
+  document.addEventListener('click', (e)=>{
+    if(e.target.closest('#detVideoMock')){
+      toast('กำลังเล่นสตรีม (จำลอง) — ดูได้จากทุกอุปกรณ์ผ่านลิงก์เดียวกัน');
+    }
+  });
+
+  // ===================== CONNECT / IMPORT ORDERS =====================
+
+  // Track saved connections & synced orders
+  const connectionStatus = { shopee: false, lazada: false, tiktok: false, '3pl': false };
+  let syncedOrders = [];       // orders fetched from last sync
+  let selectedOrderIds = new Set();
+
+  // ---- Platform card accordion ----
+  function togglePlatform(pid){
+    const body = document.getElementById('pcb-' + pid);
+    const ico  = document.getElementById('pct-' + pid);
+    const isOpen = body.style.display !== 'none';
+    // close all first
+    ['shopee','lazada','tiktok','3pl'].forEach(p => {
+      document.getElementById('pcb-' + p).style.display = 'none';
+      document.getElementById('pct-' + p).classList.remove('open');
+    });
+    if(!isOpen){
+      body.style.display = 'block';
+      ico.classList.add('open');
+    }
+  }
+
+  // ---- 3PL type toggle ----
+  function toggle3plType(){
+    const t = document.getElementById('3pl-type').value;
+    document.getElementById('3pl-api-fields').style.display = t === 'api' ? '' : 'none';
+    document.getElementById('3pl-csv-fields').style.display = t === 'csv' ? '' : 'none';
+    document.getElementById('btn-test-3pl').style.display  = t === 'csv' ? 'none' : '';
+  }
+
+  // ---- CSV file handler (mock parse) ----
+  function handleCsvFile(input){
+    if(!input.files.length) return;
+    const f = input.files[0];
+    const zone = document.getElementById('csvDropZone');
+    zone.innerHTML = `<div class="cdz-ico">✓</div><div class="cdz-txt">${f.name}</div><div class="cdz-sub">${(f.size/1024).toFixed(1)} KB — คลิกเพื่อเปลี่ยนไฟล์</div>`;
+    zone.style.borderColor = 'var(--go)';
+    // inject mock orders from CSV into the import area after a beat
+    setTimeout(()=>{
+      saveConnect('3pl');
+      toast('อ่านไฟล์ ' + f.name + ' เรียบร้อย — กด Sync เพื่อดูรายการออเดอร์');
+    }, 600);
+  }
+
+  // ---- Test connection (mock) ----
+  const MOCK_RESPONSES = {
+    shopee: { ok: true,  msg: '✓ เชื่อมต่อสำเร็จ — ร้าน "MyShop Official Store" · ออเดอร์รอแพค: 14 รายการ' },
+    lazada: { ok: true,  msg: '✓ เชื่อมต่อสำเร็จ — Seller ID 88291 · ออเดอร์รอแพค: 7 รายการ' },
+    tiktok: { ok: false, msg: '✕ Access Token หมดอายุ — กรุณา Re-authorize ที่ TikTok Seller Center แล้วนำ Token ใหม่มาใส่' },
+    '3pl':  { ok: true,  msg: '✓ เชื่อมต่อ WMS API สำเร็จ — endpoint ตอบกลับ 200 OK · ออเดอร์ PENDING_PACK: 22 รายการ' },
+  };
+
+  function testConnect(pid){
+    const el = document.getElementById('cxr-' + pid);
+    el.className = 'cx-test-result show loading';
+    el.textContent = '● กำลังทดสอบการเชื่อมต่อ...';
+    setTimeout(()=>{
+      const r = MOCK_RESPONSES[pid];
+      el.className = 'cx-test-result show ' + (r.ok ? '' : 'error');
+      el.textContent = r.msg;
+    }, 1400 + Math.random()*800);
+  }
+
+  function saveConnect(pid){
+    connectionStatus[pid] = true;
+    const card = document.getElementById('pc-' + pid);
+    card.classList.add('connected');
+    const statusEl = document.getElementById('pcs-' + pid);
+    statusEl.textContent = '● เชื่อมต่อแล้ว';
+    statusEl.classList.add('ok');
+    toast('บันทึกการตั้งค่า ' + pid.toUpperCase() + ' เรียบร้อยแล้ว');
+  }
+
+  // ---- Mock order pool to pull from ----
+  const PLATFORM_ORDER_POOL = [
+    // Shopee
+    {awb:'SPX-TH-88213940', platform:'shopee', items:3, buyer:'สมหมาย ก.', status:'ready', alreadyIn: true },
+    {awb:'SPX-TH-77104821', platform:'shopee', items:1, buyer:'พรรณี ส.', status:'ready', alreadyIn: false },
+    {awb:'SPX-TH-66392011', platform:'shopee', items:2, buyer:'วิชัย น.', status:'ready', alreadyIn: false },
+    {awb:'SPX-TH-55001293', platform:'shopee', items:4, buyer:'นิรมล ว.', status:'ready', alreadyIn: false },
+    {awb:'SPX-TH-44819201', platform:'shopee', items:1, buyer:'ธนา ข.', status:'pending', alreadyIn: false },
+    // Lazada
+    {awb:'LZD-2026-661820', platform:'lazada', items:2, buyer:'อรพิน ท.', status:'ready', alreadyIn: true },
+    {awb:'LZD-2026-834901', platform:'lazada', items:3, buyer:'มานี ร.', status:'ready', alreadyIn: false },
+    {awb:'LZD-2026-920011', platform:'lazada', items:1, buyer:'สุภา จ.', status:'ready', alreadyIn: false },
+    // TikTok
+    {awb:'TT-TH-10029381', platform:'tiktok', items:2, buyer:'เจษฎา ป.', status:'ready', alreadyIn: false },
+    {awb:'TT-TH-10038221', platform:'tiktok', items:1, buyer:'ปภาวี ส.', status:'ready', alreadyIn: false },
+    // 3PL
+    {awb:'ORD-MANUAL-0451', platform:'3pl', items:4, buyer:'ลูกค้า B2B', status:'ready', alreadyIn: true },
+    {awb:'ORD-MANUAL-0512', platform:'3pl', items:2, buyer:'ร้าน ABC', status:'ready', alreadyIn: false },
+    {awb:'ORD-MANUAL-0588', platform:'3pl', items:6, buyer:'บริษัท XYZ', status:'pending', alreadyIn: false },
+  ];
+
+  const PLATFORM_LABELS = { shopee:'Shopee', lazada:'Lazada', tiktok:'TikTok Shop', '3pl':'3PL / คลัง' };
+
+  // ---- Run Sync ----
+  function runSync(){
+    const platform = document.getElementById('syncPlatform').value;
+    const statusFilter = document.getElementById('syncStatus').value;
+
+    document.getElementById('syncResultWrap').style.display = 'none';
+    document.getElementById('importConfirmBar').style.display = 'none';
+    const wrap = document.getElementById('syncProgressWrap');
+    const fill = document.getElementById('syncProgFill');
+    const label = document.getElementById('syncProgLabel');
+    wrap.style.display = 'block';
+    fill.style.width = '0%';
+    selectedOrderIds = new Set();
+
+    const steps = [
+      [15, 'กำลังตรวจสอบ Token...'],
+      [35, 'เชื่อมต่อ API...'],
+      [60, 'ดึงรายการออเดอร์...'],
+      [85, 'ตรวจสอบสถานะ...'],
+      [100,'โหลดสำเร็จ'],
+    ];
+    let si = 0;
+    const iv = setInterval(()=>{
+      if(si >= steps.length){ clearInterval(iv); return; }
+      fill.style.width = steps[si][0] + '%';
+      label.textContent = steps[si][1];
+      si++;
+      if(si === steps.length){
+        clearInterval(iv);
+        setTimeout(()=>{
+          wrap.style.display = 'none';
+          showSyncResults(platform, statusFilter);
+        }, 400);
+      }
+    }, 300);
+  }
+
+  function showSyncResults(platform, statusFilter){
+    let pool = PLATFORM_ORDER_POOL;
+    if(platform !== 'all') pool = pool.filter(o => o.platform === platform);
+    if(statusFilter !== 'all') pool = pool.filter(o => o.status === statusFilter || statusFilter === 'ready' && o.status === 'ready');
+    syncedOrders = pool;
+
+    const wrap = document.getElementById('syncResultWrap');
+    const list = document.getElementById('syncOrderList');
+    const count = document.getElementById('srsCount');
+    const meta  = document.getElementById('srsMeta');
+
+    count.textContent = `${pool.length} ออเดอร์`;
+    const already = pool.filter(o=>o.alreadyIn).length;
+    meta.textContent = `พบออเดอร์รอแพค ${pool.length} รายการ · ${already} รายการนำเข้าแล้ว · ดึงข้อมูลเมื่อ ${new Date().toLocaleTimeString('th-TH',{hour12:false})}`;
+
+    list.innerHTML = '';
+    pool.forEach(order => {
+      const row = document.createElement('div');
+      row.className = 'sync-order-row' + (order.alreadyIn ? ' already' : '');
+      row.dataset.awb = order.awb;
+      row.onclick = ()=>{ if(!order.alreadyIn) toggleOrderSelect(order.awb, row); };
+
+      const dotClass = order.platform === '3pl' ? 'pl3' : order.platform;
+      row.innerHTML = `
+        <div class="sor-check">${order.alreadyIn ? '—' : ''}</div>
+        <div class="sor-platform-dot ${order.platform}"></div>
+        <div class="sor-info">
+          <div class="sor-awb">${order.awb}</div>
+          <div class="sor-detail">${PLATFORM_LABELS[order.platform]} · ผู้ซื้อ: ${order.buyer}</div>
+        </div>
+        <div class="sor-items">${order.items} ชิ้น</div>
+        <span class="sor-badge ${order.alreadyIn ? 'already-in' : 'ready'}">
+          ${order.alreadyIn ? 'นำเข้าแล้ว' : 'Ready'}
+        </span>
+      `;
+      list.appendChild(row);
+    });
+
+    wrap.style.display = 'block';
+    updateImportBtn();
+  }
+
+  function toggleOrderSelect(awb, row){
+    if(selectedOrderIds.has(awb)){
+      selectedOrderIds.delete(awb);
+      row.classList.remove('selected');
+      row.querySelector('.sor-check').textContent = '';
+    } else {
+      selectedOrderIds.add(awb);
+      row.classList.add('selected');
+      row.querySelector('.sor-check').textContent = '✓';
+    }
+    updateImportBtn();
+  }
+
+  function selectAllOrders(doSelect){
+    syncedOrders.filter(o=>!o.alreadyIn).forEach(order=>{
+      const row = document.querySelector(`.sync-order-row[data-awb="${order.awb}"]`);
+      if(!row || row.classList.contains('already')) return;
+      if(doSelect){
+        selectedOrderIds.add(order.awb);
+        row.classList.add('selected');
+        row.querySelector('.sor-check').textContent = '✓';
+      } else {
+        selectedOrderIds.delete(order.awb);
+        row.classList.remove('selected');
+        row.querySelector('.sor-check').textContent = '';
+      }
+    });
+    updateImportBtn();
+  }
+
+  function updateImportBtn(){
+    document.getElementById('importSelectedBtn').disabled = selectedOrderIds.size === 0;
+  }
+
+  // ---- Import selected orders into ORDER_DB ----
+  const ITEM_POOL = [
+    {sku:'SKU-GEN-A', name:'สินค้า A', qty:1, code:'0000000000001'},
+    {sku:'SKU-GEN-B', name:'สินค้า B', qty:2, code:'0000000000002'},
+    {sku:'SKU-GEN-C', name:'สินค้า C', qty:1, code:'0000000000003'},
+    {sku:'SKU-GEN-D', name:'สินค้า D', qty:3, code:'0000000000004'},
+    {sku:'SKU-GEN-E', name:'สินค้า E', qty:1, code:'0000000000005'},
+    {sku:'SKU-GEN-F', name:'สินค้า F', qty:2, code:'0000000000006'},
+  ];
+
+  function importSelected(){
+    let count = 0;
+    selectedOrderIds.forEach(awb => {
+      const meta = syncedOrders.find(o => o.awb === awb);
+      if(!meta || ORDER_DB[awb]) return;
+      // Build mock item list matching the item count from the order pool
+      const n = meta.items;
+      const items = [];
+      for(let i = 0; i < n; i++){
+        const tpl = ITEM_POOL[i % ITEM_POOL.length];
+        items.push({
+          sku: tpl.sku + '-' + awb.slice(-3),
+          name: `${tpl.name} (ออเดอร์ ${awb.slice(-4)})`,
+          qty: tpl.qty,
+          code: String(Number(tpl.code) + count * 10 + i)
+        });
+      }
+      ORDER_DB[awb] = { platform: PLATFORM_LABELS[meta.platform], items };
+      // mark as alreadyIn in pool so UI reflects
+      const poolEntry = PLATFORM_ORDER_POOL.find(o=>o.awb===awb);
+      if(poolEntry) poolEntry.alreadyIn = true;
+      count++;
+    });
+
+    const bar = document.getElementById('importConfirmBar');
+    document.getElementById('icbMsg').textContent =
+      `✓ นำเข้า ${count} ออเดอร์เข้าระบบแล้ว — ยิงบาร์โค้ด AWB ที่หน้าสถานีแพคได้ทันที`;
+    bar.style.display = 'flex';
+    selectedOrderIds = new Set();
+    // re-render to update alreadyIn state
+    const platform = document.getElementById('syncPlatform').value;
+    const statusFilter = document.getElementById('syncStatus').value;
+    showSyncResults(platform, statusFilter);
+    toast(`นำเข้า ${count} ออเดอร์สำเร็จ — พร้อมยิงสแกนเนอร์`);
+  }
+
+  function goPackAfterImport(){
+    switchView('pack');
+    setTimeout(()=> awbInput.focus(), 200);
+  }
+</script>
+</body>
+</html>

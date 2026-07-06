@@ -1,0 +1,107 @@
+{
+  "SPX-TH-88213940": {
+    "order_no": "260623PSH001",
+    "platform": "Shopee",
+    "buyer": "Demo Customer 001",
+    "customer_name": "Demo Customer 001",
+    "labelFile": {
+      "fileName": "demo-shopee-label.png",
+      "relativePath": "local-nas/labels/demo/demo-shopee-label.png",
+      "importedAt": "2026-06-24T00:00:00.000Z",
+      "contentType": "image/png"
+    },
+    "items": [
+      {
+        "sku": "CAB-WALL-2D-60X32X24",
+        "name": "ตู้แขวนผนัง 2 ประตู 60x32x24 ซม.",
+        "product_name": "ตู้แขวนผนัง 2 ประตู 60x32x24 ซม.",
+        "qty": 1,
+        "barcode": "CAB-WALL-2D-60X32X24"
+      },
+      {
+        "sku": "FIT-HINGE-CUP-35MM",
+        "name": "ชุดบานพับถ้วย 35mm",
+        "product_name": "ชุดบานพับถ้วย 35mm",
+        "qty": 2,
+        "barcode": "FIT-HINGE-CUP-35MM"
+      },
+      {
+        "sku": "FIT-BRACKET-WALL-SET",
+        "name": "ตัวแขวนผนังตู้ชุดเหล็ก",
+        "product_name": "ตัวแขวนผนังตู้ชุดเหล็ก",
+        "qty": 1,
+        "barcode": "FIT-BRACKET-WALL-SET"
+      }
+    ]
+  },
+  "LZD-2026-661820": {
+    "order_no": "110625LZD004",
+    "platform": "Lazada",
+    "buyer": "Example Customer 002",
+    "customer_name": "Example Customer 002",
+    "labelFile": {
+      "fileName": "demo-lazada-label.png",
+      "relativePath": "local-nas/labels/demo/demo-lazada-label.png",
+      "importedAt": "2026-06-24T00:00:00.000Z",
+      "contentType": "image/png"
+    },
+    "items": [
+      {
+        "sku": "CAB-WALL-3D-96X46X30",
+        "name": "ตู้แขวนผนัง 3 ประตู 96x46x30 ซม.",
+        "product_name": "ตู้แขวนผนัง 3 ประตู 96x46x30 ซม.",
+        "qty": 1,
+        "barcode": "CAB-WALL-3D-96X46X30"
+      },
+      {
+        "sku": "FIT-HANDLE-WHITE-96MM",
+        "name": "มือจับตู้สีขาว 96mm",
+        "product_name": "มือจับตู้สีขาว 96mm",
+        "qty": 4,
+        "barcode": "FIT-HANDLE-WHITE-96MM"
+      },
+      {
+        "sku": "FIT-SCREW-PLUG-SET",
+        "name": "ชุดน็อต / สกรู / พุก",
+        "product_name": "ชุดน็อต / สกรู / พุก",
+        "qty": 1,
+        "barcode": "FIT-SCREW-PLUG-SET"
+      }
+    ]
+  },
+  "ORD-MANUAL-0451": {
+    "order_no": "MANUAL-0451",
+    "platform": "ทั่วไป",
+    "buyer": "Example Business Customer",
+    "customer_name": "Example Business Customer",
+    "labelFile": {
+      "fileName": "demo-custom-label.png",
+      "relativePath": "local-nas/labels/demo/demo-custom-label.png",
+      "importedAt": "2026-06-24T00:00:00.000Z",
+      "contentType": "image/png"
+    },
+    "items": [
+      {
+        "sku": "SHELF-BOOK-80X46X31",
+        "name": "ชั้นวางของขนาดเล็ก 80x46x31 ซม.",
+        "product_name": "ชั้นวางของขนาดเล็ก 80x46x31 ซม.",
+        "qty": 2,
+        "barcode": "SHELF-BOOK-80X46X31"
+      },
+      {
+        "sku": "FIT-SLIDE-300MM",
+        "name": "รางลิ้นชัก 300mm",
+        "product_name": "รางลิ้นชัก 300mm",
+        "qty": 4,
+        "barcode": "FIT-SLIDE-300MM"
+      },
+      {
+        "sku": "FIT-BRACKET-WALL-SET",
+        "name": "ฉากรับชั้น / ตัวแขวนผนังตู้",
+        "product_name": "ฉากรับชั้น / ตัวแขวนผนังตู้",
+        "qty": 1,
+        "barcode": "FIT-BRACKET-WALL-SET"
+      }
+    ]
+  }
+}

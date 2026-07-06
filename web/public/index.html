@@ -1,0 +1,775 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>SmartRecord Pack Station</title>
+    <script>
+      if (window.location.protocol === "file:") {
+        window.location.replace("http://localhost:4173/");
+      }
+    </script>
+    <link rel="stylesheet" href="/assets/styles.css">
+  </head>
+  <body>
+    <section class="loginScreen" id="loginScreen">
+      <div class="loginShell">
+        <div class="loginFormPane">
+          <form class="loginCard" id="loginForm" novalidate>
+            <div class="loginBrand">
+              <p class="eyebrow">secure access</p>
+              <h2>เข้าสู่ระบบ</h2>
+              <p class="loginTagline">สำหรับพนักงาน HYD FURNITURE</p>
+            </div>
+            <div class="loginError hidden" id="loginError" role="alert"></div>
+            <label>
+              <span>อีเมล</span>
+              <input id="loginEmail" type="email" autocomplete="username" placeholder="user@hyd.furniture" required>
+            </label>
+            <label>
+              <span>รหัสผ่าน</span>
+              <div class="passwordWrap">
+                <input id="loginPassword" type="password" autocomplete="current-password" placeholder="รหัสผ่าน" required>
+                <button type="button" class="passwordToggle" id="passwordToggle" tabindex="-1" aria-label="แสดงหรือซ่อนรหัสผ่าน">👁</button>
+              </div>
+            </label>
+            <button type="submit" id="loginBtn">
+              <span id="loginBtnText">เข้าสู่ระบบ</span>
+              <span id="loginSpinner" class="hidden">กำลังตรวจสอบ...</span>
+            </button>
+            <div class="loginSecureNote">ระบบปลอดภัยด้วยการเข้ารหัสข้อมูล มาตรฐานระดับองค์กร</div>
+            <p class="loginHint" id="loginHint"></p>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <main id="app" class="authLocked">
+      <header class="topbar">
+        <div class="brand">
+          <img class="brandLogo" src="/assets/hyd-furniture-logo.png" alt="HYD FURNITURE">
+          <div>
+            <div class="brandName">HYD FURNITURE</div>
+            <div class="brandSub">SMARTRECORD PACK STATION</div>
+          </div>
+        </div>
+        <div class="topbarRight">
+          <div class="stationInfo">
+            <span class="stationLabel" id="stationId">STATION-07</span>
+            <b class="clockDisplay" id="clock">--:--:--</b>
+          </div>
+          <div class="userMenu" id="userMenu">
+            <button type="button" class="userChip" id="userChipBtn" aria-haspopup="true" aria-expanded="false">
+              <span class="userAvatar" id="userAvatar">?</span>
+              <span class="userChipName" id="currentUser">ยังไม่ได้ login</span>
+              <span class="roleBadge" id="roleBadge"></span>
+              <span class="chevron">▾</span>
+            </button>
+            <div class="userDropdown hidden" id="userDropdown" role="menu">
+              <div class="userDropdownInfo">
+                <div class="userDropdownName" id="dropdownName">-</div>
+                <div class="userDropdownEmail" id="dropdownEmail">-</div>
+              </div>
+              <hr class="dropdownDivider">
+              <button type="button" class="dropdownItem settingsButton" id="openSettingsBtn">⚙ Device Settings</button>
+              <button type="button" class="dropdownItem dropdownLogout" id="logoutBtn">↩ ออกจากระบบ</button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <nav class="tabs" id="mainNav" aria-label="SmartRecord views">
+        <button class="hamburger" id="hamburgerBtn" type="button" aria-label="เมนู" aria-expanded="false" aria-controls="tabList">
+          <span></span><span></span><span></span>
+        </button>
+        <div class="tabList" id="tabList">
+          <button class="tab active" data-view="pack" data-permission="pack:use">Pack Station</button>
+          <button class="tab" data-view="reports" data-permission="reports:view">Reports</button>
+          <button class="tab" data-view="connect" data-permission="integrations:manage">Connect / Import</button>
+          <button class="tab" data-view="labels" data-permission="labels:manage">ปริ้นใบปะหน้า</button>
+          <button class="tab" data-view="users" data-permission="users:manage">Users</button>
+        </div>
+      </nav>
+
+      <section class="view active" id="packView">
+        <div class="stageRail">
+          <span class="stage active" data-stage="scan">Scan AWB</span>
+          <span class="stage" data-stage="pack">Pack</span>
+          <span class="stage" data-stage="upload">Upload</span>
+          <span class="stage" data-stage="complete">Complete</span>
+        </div>
+
+        <section class="scanPanel" id="scanPanel">
+          <div>
+            <p class="eyebrow">เริ่มต้นออเดอร์ใหม่</p>
+            <h1>เริ่มแพคออเดอร์</h1>
+            <p class="muted">ต้องมีใบปะหน้าจากเมนู ปริ้นใบปะหน้า หรือ Connect / Import ก่อน ระบบจึงจะเปิด pack session และเริ่มบันทึกวิดีโอ</p>
+          </div>
+          <div class="scanWorkspace">
+            <form class="scanBox" id="startForm">
+              <div class="scanBoxHead">
+                <b>สแกน AWB</b>
+                <span>หลังเตรียมใบปะหน้าแล้ว</span>
+              </div>
+              <label for="awbInput">AWB / Order ID</label>
+              <input id="awbInput" autocomplete="off" placeholder="SPX-TH-88213940">
+              <div class="deviceSummary" id="deviceSummary">กำลังโหลด Settings...</div>
+              <button type="submit">เริ่มแพค</button>
+            </form>
+            <aside class="prePackGuide" aria-label="ตัวอย่างก่อนเริ่มแพค">
+              <div class="prePackGuideHead">
+                <b>ก่อนเริ่มแพคออเดอร์</b>
+                <span>ใบปะหน้าต้องอยู่ในเฟรม</span>
+              </div>
+              <img id="prePackGuideImg" src="/assets/prepack-label-required.png" alt="ตัวอย่างการจัดวางกล่อง สินค้า และใบปะหน้าก่อนเริ่มแพค">
+              <div class="prePackChecklist">
+                <span>มีใบปะหน้าจากระบบแล้ว</span>
+                <span>วางใบปะหน้าให้กล้องเห็น</span>
+                <span>กล่องและสินค้าอยู่ในพื้นที่แพค</span>
+              </div>
+            </aside>
+          </div>
+          <div class="demoButtons">
+            <button type="button" data-demo-awb="SPX-TH-88213940">Shopee demo</button>
+            <button type="button" data-demo-awb="LZD-2026-661820">Lazada demo</button>
+            <button type="button" data-demo-awb="ORD-MANUAL-0451">custom demo</button>
+          </div>
+        </section>
+
+        <section class="packGrid hidden" id="packPanel">
+          <div class="panel">
+            <div class="panelHead">
+              <span>Session</span>
+              <b id="sessionStatus">packing</b>
+            </div>
+            <div class="recordFrame">
+              <video id="webcamVideo" autoplay muted playsinline></video>
+              <div class="noCam" id="noCamMsg">ยังไม่พบภาพจากกล้อง กรุณาอนุญาตกล้องใน Browser</div>
+              <div class="recBadge" id="recBadge"><span></span>REC</div>
+              <div class="recTimer" id="recTimer">00:00</div>
+            </div>
+            <dl class="metaGrid">
+              <div><dt>AWB</dt><dd id="activeAwb">-</dd></div>
+              <div><dt>Platform</dt><dd id="activePlatform">-</dd></div>
+              <div><dt>พนักงาน</dt><dd id="employeeId">EMP-0012</dd></div>
+              <div><dt>สถานี</dt><dd id="activeStation">STATION-07</dd></div>
+              <div><dt>เริ่ม</dt><dd id="startedAt">-</dd></div>
+              <div><dt>ความคืบหน้า</dt><dd id="progressText">0/0</dd></div>
+            </dl>
+          </div>
+
+          <div class="panel">
+            <div class="panelHead">
+              <span>รายการสินค้า</span>
+              <b id="itemCount">0/0</b>
+            </div>
+            <div class="itemList" id="itemList"></div>
+            <form class="itemScan" id="scanForm">
+              <input id="scanInput" autocomplete="off" placeholder="ยิง SKU/barcode หรือยิง AWB ซ้ำเพื่อปิดกล่อง">
+              <button type="submit">สแกน</button>
+            </form>
+            <div class="progressTrack"><div id="progressFill"></div></div>
+            <div class="actionRow">
+              <button type="button" class="secondary" id="scanNextBtn">สแกนชิ้นถัดไป</button>
+              <button type="button" id="closeBtn">ปิดกล่อง</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="uploadPanel hidden" id="uploadPanel">
+          <div class="uploadCard">
+            <div class="uploadIcon">NAS</div>
+            <p class="eyebrow">บันทึกหลักฐาน</p>
+            <h2>กำลังบันทึกขึ้น NAS</h2>
+            <p class="muted" id="uploadOrderLine">กำลังเตรียมข้อมูล...</p>
+            <div class="uploadTrack"><div id="uploadFill"></div></div>
+            <div class="uploadPct" id="uploadPct">0%</div>
+            <div class="uploadSteps" id="uploadSteps"></div>
+          </div>
+        </section>
+
+        <section class="completePanel hidden" id="completePanel">
+          <div class="completeBadge">✓</div>
+          <h2 id="completeTitle">บันทึกสำเร็จ</h2>
+          <div class="receipt" id="receipt"></div>
+          <button type="button" id="nextOrderBtn">แพคออเดอร์ถัดไป</button>
+        </section>
+      </section>
+
+      <section class="view" id="reportsView">
+        <div class="sectionHead">
+          <div>
+            <p class="eyebrow">records</p>
+            <h2>รายงานย้อนหลัง</h2>
+          </div>
+          <button type="button" id="refreshReportsBtn">⟳ Refresh</button>
+        </div>
+
+        <div class="reportStatBar" id="reportStatBar">
+          <div class="reportStat">
+            <span class="statValue" id="statTotal">0</span>
+            <span class="statLabel">รายการทั้งหมด</span>
+          </div>
+          <div class="statDivider"></div>
+          <div class="reportStat pass">
+            <span class="statValue" id="statPass">0</span>
+            <span class="statLabel">ผ่าน</span>
+          </div>
+          <div class="statDivider"></div>
+          <div class="reportStat warn">
+            <span class="statValue" id="statWarn">0</span>
+            <span class="statLabel">มีข้อสังเกต</span>
+          </div>
+          <div class="statDivider"></div>
+          <div class="reportStat">
+            <span class="statValue" id="statSize">0 MB</span>
+            <span class="statLabel">ขนาดรวม</span>
+          </div>
+          <span class="reportSummary" id="reportSummary"></span>
+        </div>
+
+        <div class="reportFilters">
+          <div class="reportFilterRow">
+            <div class="searchWrap">
+              <span class="searchIcon">🔍</span>
+              <input id="reportSearch" autocomplete="off" placeholder="ค้นหา AWB / แพลตฟอร์ม / พนักงาน">
+            </div>
+            <select id="statusFilter">
+              <option value="">🔵 ทุกสถานะ</option>
+              <option value="pass">✅ ตรวจสอบผ่าน</option>
+              <option value="warn">⚠️ มีข้อสังเกต</option>
+            </select>
+            <select id="platformFilter">
+              <option value="">📦 ทุกแพลตฟอร์ม</option>
+              <option value="Shopee">Shopee</option>
+              <option value="Lazada">Lazada</option>
+              <option value="Tiktok">TikTok</option>
+              <option value="custom">ทั่วไป</option>
+            </select>
+            <select id="employeeFilter">
+              <option value="">👤 ทุกพนักงาน</option>
+            </select>
+            <div class="dateFilterGroup" aria-label="เลือกวันที่รายงาน">
+              <select id="reportDayFilter" aria-label="วัน">
+                <option value="">📅 ทุกวัน</option>
+              </select>
+              <select id="reportMonthFilter" aria-label="เดือน">
+                <option value="">🗓️ ทุกเดือน</option>
+              </select>
+              <select id="reportYearFilter" aria-label="ปี">
+                <option value="">📆 ทุกปี</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="tableWrap">
+          <table>
+            <thead>
+              <tr>
+                <th>AWB</th>
+                <th>แพลตฟอร์ม</th>
+                <th>พนักงาน</th>
+                <th>วันที่</th>
+                <th>เวลา</th>
+                <th>ขนาด</th>
+                <th>สถานะ</th>
+                <th>ที่จัดเก็บ</th>
+                <th>การกระทำ</th>
+              </tr>
+            </thead>
+            <tbody id="reportsBody"></tbody>
+          </table>
+          <p class="empty" id="reportsEmpty">ยังไม่มี record จากการแพคในรอบนี้</p>
+        </div>
+      </section>
+
+      <section class="view" id="connectView">
+        <div class="sectionHead">
+          <div>
+            <p class="eyebrow">integrations</p>
+            <h2>เชื่อมต่อ / นำเข้าออเดอร์</h2>
+          </div>
+          <button type="button" id="goPackBtn">ไปหน้า Pack</button>
+        </div>
+
+        <div class="connectGrid">
+          <section class="panel">
+            <div class="panelHead">
+              <span>Manual Import / Sync Orders</span>
+              <b id="syncCount">0 ออเดอร์</b>
+            </div>
+            <div class="syncControls">
+              <select id="syncPlatform">
+                <option value="all">ทุกแพลตฟอร์ม</option>
+                <option value="shopee">Shopee</option>
+                <option value="lazada">Lazada</option>
+                <option value="tiktok">TikTok Shop</option>
+                <option value="3pl">3PL</option>
+              </select>
+              <select id="syncStatus">
+                <option value="all">ทั้งหมด</option>
+                <option value="ready">Ready to Ship</option>
+                <option value="draft">รอแก้ไข</option>
+                <option value="pending">Pending</option>
+              </select>
+              <button type="button" id="syncOrdersBtn">Sync ออเดอร์</button>
+            </div>
+            <form class="manualOrderForm" id="manualOrderForm">
+              <div class="manualOrderHead">
+                <b>แบบฟอร์มนำเข้าออเดอร์เอง</b>
+                <span>กรอก AWB แล้วนำเข้าเข้า ORDER_DB เพื่อยิงหน้า Pack Station ได้ทันที</span>
+              </div>
+              <div class="manualOrderGrid">
+                <label>
+                  <span>AWB / Order ID</span>
+                  <input id="manualAwbInput" autocomplete="off" placeholder="เช่น SPX-TH-99999999" required>
+                </label>
+                <label>
+                  <span>เลขออเดอร์</span>
+                  <input id="manualOrderNumberInput" autocomplete="off" placeholder="เช่น 2606047GU07A12" required>
+                </label>
+                <label>
+                  <span>Platform</span>
+                  <select id="manualPlatformSelect">
+                    <option value="shopee">Shopee</option>
+                    <option value="lazada">Lazada</option>
+                    <option value="tiktok">TikTok</option>
+                    <option value="3pl">3PL / custom</option>
+                  </select>
+                </label>
+                <label>
+                  <span>ลูกค้า / ร้านค้า</span>
+                  <input id="manualBuyerInput" autocomplete="off" placeholder="เช่น ร้าน ABC" required>
+                </label>
+                <label>
+                  <span>จำนวนรายการสินค้า</span>
+                  <input id="manualItemCountInput" type="number" min="1" max="50" value="1" required>
+                </label>
+              </div>
+              <div class="manualOrderActions">
+                <button type="submit">นำเข้าแบบฟอร์ม</button>
+                <button type="button" class="secondary" id="clearManualOrderBtn">ล้างฟอร์ม</button>
+              </div>
+            </form>
+            <section class="panel connectLabelsWorkspace">
+              <div class="manualOrderHead">
+                <b>ปริ้นใบปะหน้า</b>
+                <span>อัปโหลดใบปะหน้า PDF ได้ตรงนี้เลย รองรับหลายหน้าต่อไฟล์ และระบบจะแยกเป็นแต่ละใบปะหน้าให้อัตโนมัติ</span>
+              </div>
+              <form class="labelUploadPanel" id="labelLibraryUploadForm">
+                <label class="labelUploadDropZone" id="labelUploadDropZone">
+                  <input id="labelLibraryFileInput" type="file" accept="application/pdf,image/png,image/jpeg,image/webp,image/tiff" required>
+                  <div class="labelUploadDropInner">
+                    <div class="labelUploadIcon">⬆</div>
+                    <b>ลากไฟล์ PDF ใบปะหน้ามาวางที่นี่</b>
+                    <span>หรือคลิกเพื่อเลือกไฟล์ · รองรับ PDF หลายหน้าและรูปใบปะหน้าเดี่ยว</span>
+                    <small id="labelUploadFileName">ยังไม่ได้เลือกไฟล์</small>
+                  </div>
+                </label>
+                <div class="labelUploadActions">
+                  <button type="submit" id="labelLibraryUploadBtn">อ่านใบปะหน้าและนำเข้า</button>
+                  <button type="button" class="secondary" id="clearLabelLibraryBtn">ล้างไฟล์</button>
+                </div>
+                <p class="labelImportStatus" id="labelLibraryStatus">OCR engine: Tesseract · ภาษา tha+eng</p>
+                <div class="labelImportPreview hidden" id="labelLibraryPreview"></div>
+              </form>
+            </section>
+            <div class="syncOrderList" id="syncOrderList"></div>
+            <div class="importBar">
+              <span id="selectedCount">เลือก 0 รายการ</span>
+              <div class="importActions">
+                <button type="button" class="secondary" id="selectAllOrdersBtn">เลือกทั้งหมด</button>
+                <button type="button" class="secondary" id="clearOrderSelectionBtn">ยกเลิกเลือก</button>
+                <button type="button" id="importOrdersBtn" disabled>นำเข้าที่เลือก</button>
+              </div>
+            </div>
+            <p class="reportSummary" id="importSummary">ออเดอร์ที่นำเข้าแล้วจะยิง AWB ได้ทันทีที่หน้า Pack Station</p>
+            <p class="skippedList hidden" id="importSkippedList"></p>
+          </section>
+
+          <section class="panel">
+            <div class="panelHead">
+              <span>API Credentials</span>
+              <b>Mock</b>
+            </div>
+            <div class="connectCards" id="connectCards"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="labelsView">
+        <div class="sectionHead">
+          <div>
+            <p class="eyebrow">manual labels</p>
+            <h2>ปริ้นใบปะหน้า</h2>
+            <p class="muted">ดูรายการใบปะหน้าที่นำเข้าแล้ว กรองข้อมูล และเปิด preview เพื่อพิมพ์ได้จากหน้านี้</p>
+          </div>
+        </div>
+
+        <section class="panel labelsWorkspace">
+          <div class="labelToolbar">
+            <div class="labelToolbarFilters">
+              <input id="labelSearchInput" type="search" placeholder="ค้นหา AWB / เลขออเดอร์ / ขนส่ง">
+              <div class="labelDatePickerWrap">
+                <input id="labelDateFilter" type="date">
+                <button type="button" class="secondary iconOnly" id="clearLabelDateBtn" aria-label="ล้างวันที่">✕</button>
+              </div>
+              <select id="labelPlatformFilter">
+                <option value="">ทุกแพลตฟอร์ม</option>
+                <option value="shopee">Shopee</option>
+                <option value="lazada">Lazada</option>
+                <option value="tiktok">TikTok</option>
+                <option value="custom">ทั่วไป</option>
+                <option value="3pl">3PL</option>
+              </select>
+              <button type="button" class="secondary" id="refreshLabelsBtn">Refresh</button>
+            </div>
+            <div class="labelStatsBar">
+              <b id="labelCount">แสดง 0 / ทั้งหมด 0 ใบปะหน้า</b>
+              <span id="labelFilterHint">พร้อมพิมพ์จากใบปะหน้าที่อัปโหลดแล้ว</span>
+            </div>
+          </div>
+
+          <div class="labelCardGrid" id="labelList"></div>
+        </section>
+      </section>
+
+      <section class="view" id="usersView">
+        <div class="sectionHead">
+          <div>
+            <p class="eyebrow">account control</p>
+            <h2>จัดการ User Account / Permission</h2>
+          </div>
+          <button type="button" id="refreshUsersBtn">Refresh</button>
+        </div>
+        <div class="usersGrid">
+          <section class="panel">
+            <div class="panelHead">
+              <span id="userFormTitle">สร้างบัญชีใหม่</span>
+              <b>Admin only</b>
+            </div>
+            <form class="userForm" id="userForm">
+              <label>
+                <span>ชื่อ</span>
+                <input id="userNameInput" autocomplete="off" placeholder="ชื่อผู้ใช้งาน">
+              </label>
+              <label>
+                <span>อีเมล</span>
+                <input id="userEmailInput" type="email" autocomplete="off" placeholder="user@hyd.furniture" required>
+              </label>
+              <label>
+                <span>ชื่อพนักงาน</span>
+                <input id="userEmployeeNameInput" list="employeeNameOptions" autocomplete="off" placeholder="เช่น สมชาย ป.">
+                <datalist id="employeeNameOptions"></datalist>
+              </label>
+              <label>
+                <span>เลขประจำตัวพนักงาน</span>
+                <input id="userEmployeeIdInput" list="employeeIdOptions" autocomplete="off" placeholder="เช่น EMP-0012">
+                <datalist id="employeeIdOptions"></datalist>
+              </label>
+              <label>
+                <span>Role / Permission</span>
+                <select id="userRoleSelect"></select>
+              </label>
+              <label id="customRoleNameRow" class="hidden">
+                <span>ชื่อ Custom Role</span>
+                <input id="customRoleNameInput" autocomplete="off" placeholder="เช่น หัวหน้าสถานีแพค">
+              </label>
+              <div class="permissionMatrix" id="permissionMatrix"></div>
+              <label>
+                <span>รหัสผ่านเริ่มต้น</span>
+                <input id="userPasswordInput" type="password" autocomplete="new-password" placeholder="สร้างใหม่ต้องกรอก / แก้ไขเว้นว่างได้">
+              </label>
+              <label class="checkboxLabel">
+                <input id="userActiveInput" type="checkbox" checked>
+                <span>เปิดใช้งานบัญชีนี้</span>
+              </label>
+              <div class="formActions">
+                <button type="button" class="secondary" id="resetUserFormBtn">ล้างฟอร์ม</button>
+                <button type="submit" id="submitUserBtn">สร้าง User</button>
+              </div>
+            </form>
+          </section>
+
+          <section class="panel">
+            <div class="panelHead">
+              <span>บัญชีในระบบ</span>
+              <b id="userCount">0 users</b>
+            </div>
+            <div class="userList" id="userList"></div>
+          </section>
+        </div>
+        <section class="panel auditPanel">
+          <div class="panelHead">
+            <span>ประวัติการแก้ไข User / Permission</span>
+            <b id="auditCount">0 events</b>
+          </div>
+          <div class="auditList" id="auditList"></div>
+        </section>
+        <section class="panel auditPanel">
+          <div class="panelHead">
+            <span>ประวัติการทำงานของ User</span>
+            <b id="activityCount">0 events</b>
+          </div>
+          <div class="activityToolbar">
+            <select id="activityUserFilter"></select>
+            <button type="button" class="secondary" id="refreshActivityBtn">Refresh History</button>
+          </div>
+          <div class="auditList" id="activityList"></div>
+        </section>
+      </section>
+    </main>
+
+    <dialog id="settingsDialog">
+      <div class="settingsDialog">
+        <div class="settingsDialogHead">
+          <div>
+            <p class="eyebrow">device configuration</p>
+            <h2>Device Settings</h2>
+          </div>
+          <button type="button" class="secondary settingsCloseBtn" id="closeSettingsBtn">ปิด</button>
+        </div>
+
+        <div class="settingsBody">
+          <section class="settingsSection">
+            <div class="settingsSectionHead">
+              <span class="settingsSectionIcon">💾</span>
+              <div>
+                <div class="settingsSectionTitle">ที่จัดเก็บวิดีโอ</div>
+                <div class="settingsSectionSub">เลือกว่าจะบันทึกไฟล์หลักฐานไว้ที่ใด</div>
+              </div>
+            </div>
+            <div class="storageCardGroup" id="storageCardGroup"></div>
+            <div class="storageCustomWrap hidden" id="storageCustomWrap">
+              <label class="settingsField">
+                <span id="customPathLabel">Custom Path</span>
+                <input id="customStoragePathInput" autocomplete="off" spellcheck="false">
+              </label>
+            </div>
+            <p class="settingsHint" id="storageHint"></p>
+          </section>
+
+          <section class="settingsSection hidden" id="prePackImageSettings">
+            <div class="settingsSectionHead">
+              <span class="settingsSectionIcon">IMG</span>
+              <div>
+                <div class="settingsSectionTitle">รูปตัวอย่างก่อนเริ่มวิดีโอ</div>
+                <div class="settingsSectionSub">System Admin เปลี่ยนรูปคู่มือได้เอง ไม่บังคับสัดส่วนภาพ</div>
+              </div>
+            </div>
+            <div class="prePackImageSettingGrid">
+              <img id="prePackImagePreview" class="prePackImagePreview" src="/assets/prepack-label-required.png" alt="รูปตัวอย่างก่อนเริ่มวิดีโอ">
+              <div>
+                <label class="settingsField">
+                  <span>อัปโหลดรูป</span>
+                  <input id="prePackImageInput" type="file" accept="image/png,image/jpeg,image/webp">
+                </label>
+                <div class="settingsFieldRow">
+                  <button type="button" class="secondary" id="uploadPrePackImageBtn">เปลี่ยนรูป</button>
+                  <p class="settingsHint flex1" id="prePackImageStatus">รองรับ PNG/JPG/WebP ไม่บังคับสัดส่วนภาพ</p>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="settingsSection">
+            <div class="settingsSectionHead">
+              <span class="settingsSectionIcon">📷</span>
+              <div>
+                <div class="settingsSectionTitle">กล้อง Webcam</div>
+                <div class="settingsSectionSub">เลือกกล้องและทดสอบก่อนเริ่มแพค</div>
+              </div>
+            </div>
+            <label class="settingsField">
+              <span>กล้องที่ใช้</span>
+              <select id="cameraSelect"></select>
+            </label>
+            <p class="settingsHint" id="cameraPermissionStatus">กำลังตรวจสิทธิ์กล้อง...</p>
+            <div class="cameraPreviewWrap hidden" id="cameraPreviewWrap">
+              <video id="settingsCameraPreview" autoplay muted playsinline class="cameraPreview"></video>
+            </div>
+            <div class="settingsFieldRow">
+              <button type="button" class="secondary" id="testCameraBtn">▶ ทดสอบกล้อง</button>
+              <p class="settingsHint flex1" id="cameraStatus">ยังไม่ได้ทดสอบ</p>
+            </div>
+          </section>
+
+          <section class="settingsSection">
+            <div class="settingsSectionHead">
+              <span class="settingsSectionIcon">🖨</span>
+              <div>
+                <div class="settingsSectionTitle">เครื่องพิมพ์ฉลาก</div>
+                <div class="settingsSectionSub">เลือกเครื่องพิมพ์ที่เคยเชื่อมต่อ หรือใช้ Browser Print เพื่อค้นหาเครื่องพิมพ์</div>
+              </div>
+            </div>
+            <label class="settingsField">
+              <span>Driver / Printer</span>
+              <select id="printerDriverSelect"></select>
+            </label>
+            <div class="settingsFieldRow">
+              <button type="button" class="secondary" id="searchPrinterBtn">ค้นหาเครื่องพิมพ์ในเครื่อง</button>
+              <p class="settingsHint flex1" id="printerStatus">ใช้สำหรับตั้งค่าหน้างานก่อนพิมพ์ฉลากจริง</p>
+            </div>
+          </section>
+
+          <section class="settingsSection">
+            <div class="settingsSectionHead">
+              <span class="settingsSectionIcon">⊞</span>
+              <div>
+                <div class="settingsSectionTitle">Barcode Scanner</div>
+                <div class="settingsSectionSub">USB Keyboard Wedge หรือ Manual Input</div>
+              </div>
+            </div>
+            <label class="settingsField">
+              <span>โหมด</span>
+              <select id="scannerModeSelect"></select>
+            </label>
+            <label class="settingsField">
+              <span>ทดสอบสแกนเนอร์ <small class="settingsOptional">(คลิกแล้วยิงบาร์โค้ด)</small></span>
+              <input id="scannerTestInput" autocomplete="off" placeholder="ยิงบาร์โค้ดที่นี่...">
+            </label>
+            <p class="settingsHint" id="scannerStatus">รองรับ scanner แบบ USB Keyboard Wedge</p>
+          </section>
+        </div>
+
+        <div class="settingsActions">
+          <button type="button" class="secondary" id="cancelSettingsBtn">ยกเลิก</button>
+          <button type="button" id="saveSettingsBtn">บันทึก Settings</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="forceCloseDialog">
+      <form method="dialog" class="dialogBox">
+        <h3>ยืนยันปิดกล่องด้วย AWB ซ้ำ</h3>
+        <p id="missingText">กรุณาระบุเหตุผลก่อนปิดกล่อง</p>
+        <label for="forceReason">เหตุผล</label>
+        <textarea id="forceReason" rows="3" placeholder="เช่น ลูกค้ายกเลิกรายการ / สินค้าขาด / ตรวจนับแล้ว"></textarea>
+        <div class="dialogActions">
+          <button value="cancel" class="secondary">กลับไปสแกนต่อ</button>
+          <button value="confirm" id="confirmForceBtn">ปิดกล่อง</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="warningDialog">
+      <form method="dialog" class="dialogBox warningDialogBox">
+        <h3 id="warningTitle">แจ้งเตือน</h3>
+        <p id="warningMessage">-</p>
+        <div class="dialogActions">
+          <button value="close">รับทราบ</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="importConfirmDialog">
+      <form method="dialog" class="dialogBox">
+        <h3>ยืนยันนำเข้าออเดอร์</h3>
+        <p id="importConfirmText">นำเข้าออเดอร์ที่เลือก?</p>
+        <div class="dialogActions">
+          <button value="cancel" class="secondary">ยกเลิก</button>
+          <button value="confirm">ยืนยันนำเข้า</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="editImportedOrderDialog">
+      <form method="dialog" class="dialogBox editImportedDialogBox" id="editImportedOrderForm">
+        <div class="dialogTitleBlock">
+          <h3>แก้ไขออเดอร์ที่นำเข้าแล้ว</h3>
+          <p>ปรับข้อมูลใบปะหน้าหลังนำเข้า โดยใช้ AWB เดิมเป็นตัวอ้างอิงหลัก</p>
+        </div>
+        <div class="manualOrderGrid editImportedOrderGrid">
+          <label>
+            <span>AWB</span>
+            <input id="editImportedAwb" readonly>
+          </label>
+          <label>
+            <span>Platform</span>
+            <select id="editImportedPlatform">
+              <option value="shopee">Shopee</option>
+              <option value="lazada">Lazada</option>
+              <option value="tiktok">TikTok</option>
+              <option value="3pl">3PL / custom</option>
+            </select>
+          </label>
+          <label>
+            <span>เลขออเดอร์</span>
+            <input id="editImportedOrderNumber" autocomplete="off">
+          </label>
+          <label>
+            <span>ลูกค้า</span>
+            <input id="editImportedBuyer" autocomplete="off" required>
+          </label>
+          <label>
+            <span>SKU</span>
+            <input id="editImportedSku" autocomplete="off">
+          </label>
+          <label>
+            <span>Barcode</span>
+            <input id="editImportedBarcode" autocomplete="off">
+          </label>
+          <label class="full">
+            <span>ชื่อสินค้า</span>
+            <textarea id="editImportedProductName" rows="3" autocomplete="off"></textarea>
+          </label>
+          <label>
+            <span>จำนวนสินค้า</span>
+            <input id="editImportedQty" type="number" min="1" max="999" value="1" required>
+          </label>
+          <label>
+            <span>ขนส่ง</span>
+            <input id="editImportedCarrier" autocomplete="off">
+          </label>
+        </div>
+        <div class="dialogActions">
+          <button value="cancel" class="secondary">ยกเลิก</button>
+          <button value="confirm" id="saveImportedOrderBtn">บันทึกการแก้ไข</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="recordDetailDialog">
+      <form method="dialog" class="detailDialog">
+        <div class="detailHead">
+          <div>
+            <p class="eyebrow">รายละเอียดการบันทึก</p>
+            <h2 id="detailAwb">-</h2>
+          </div>
+          <button value="close" class="secondary">ปิด</button>
+        </div>
+        <div class="streamPlayer" id="detailVideoPlayer">
+          <span>▶</span>
+          <b>คลิกเพื่อดูสตรีม (จำลอง)</b>
+        </div>
+        <div class="receipt" id="detailReceipt"></div>
+        <div class="detailCopy">
+          <input id="detailShareLink" readonly>
+          <button type="button" id="copyDetailLinkBtn">คัดลอกลิงก์</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="labelPrintDialog">
+      <form method="dialog" class="detailDialog labelPrintDialogBox">
+        <div class="detailHead">
+          <div>
+            <p class="eyebrow">Print Preview</p>
+            <h2 id="labelPrintDialogTitle">-</h2>
+          </div>
+          <button value="close" class="secondary">ปิด</button>
+        </div>
+        <div class="labelPrintPreviewFrame">
+          <img id="labelPrintPreviewImg" alt="ตัวอย่างใบปะหน้า">
+        </div>
+        <div class="receipt" id="labelPrintMeta"></div>
+        <div class="dialogActions">
+          <button type="button" id="labelPrintNowBtn">🖨 ปริ้น</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div class="toast" id="toast"></div>
+    <script type="module" src="/assets/app.js"></script>
+  </body>
+</html>

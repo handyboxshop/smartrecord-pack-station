@@ -1,0 +1,17 @@
+.DS_Store
+.env
+.env.*
+*.log
+*.webm
+*.mp4
+*.mov
+*.avi
+node_modules/
+dist/
+build/
+.vite/
+.cache/
+local-nas/
+web/local-nas/
+web/local-nas/**
+local-nas/**

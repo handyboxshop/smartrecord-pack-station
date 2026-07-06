@@ -1,0 +1,17 @@
+local-nas/
+web/local-nas/
+local-nas/**
+web/local-nas/**
+*.webm
+*.mp4
+*.mov
+*.avi
+*.log
+node_modules/
+dist/
+build/
+.vite/
+.cache/
+.env
+.DS_Store
+tests/

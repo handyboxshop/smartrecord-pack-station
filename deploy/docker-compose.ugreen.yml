@@ -1,0 +1,19 @@
+services:
+  smartrecord:
+    build:
+      context: ../web
+      dockerfile: Dockerfile
+    image: smartrecord-pack-station:ugreen
+    container_name: smartrecord-pack-station
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Bangkok
+      PORT: 4173
+      SMARTRECORD_CONFIG_PATH: /data/smartrecord/config/app-config.json
+      SMARTRECORD_ORDERS_PATH: /data/smartrecord/data/orders.json
+      SMARTRECORD_SYNC_ORDERS_PATH: /data/smartrecord/data/sync-orders.json
+      SMARTRECORD_RUNTIME_ROOT: /data/smartrecord
+    ports:
+      - "4173:4173"
+    volumes:
+      - ./smartrecord-data:/data/smartrecord

@@ -1,0 +1,334 @@
+{
+  "app": {
+    "name": "SmartRecord Pack Station",
+    "timezone": "Asia/Bangkok",
+    "defaultLocale": "th-TH"
+  },
+  "station": {
+    "defaultStationId": "STATION-07",
+    "cameraProbeOnLoad": true
+  },
+  "employees": {
+    "defaultEmployeeId": "EMP-0012",
+    "defaultEmployeeName": "Demo Admin",
+    "list": [
+      { "id": "EMP-0012", "name": "Demo Admin" },
+      { "id": "EMP-0031", "name": "Demo Manager" },
+      { "id": "EMP-0008", "name": "Demo Packer" },
+      { "id": "EMP-0019", "name": "Demo Auditor" }
+    ]
+  },
+  "auth": {
+    "passwordPolicy": {
+      "minLength": 8,
+      "hashAlgorithm": "pbkdf2-sha256",
+      "iterations": 120000
+    },
+    "session": {
+      "ttlHours": 12
+    },
+    "modules": [
+      { "id": "pack", "label": "Pack Station", "section": "ปฏิบัติการ", "viewPermission": "pack:use", "editPermission": "pack:use" },
+      { "id": "reports", "label": "Reports", "section": "ตรวจสอบ", "viewPermission": "reports:view", "editPermission": "reports:view" },
+      { "id": "connect", "label": "Connect / Import", "section": "เชื่อมต่อ", "viewPermission": "integrations:manage", "editPermission": "integrations:manage" },
+      { "id": "labels", "label": "ปริ้นใบปะหน้า", "section": "เชื่อมต่อ", "viewPermission": "labels:manage", "editPermission": "labels:manage" },
+      { "id": "settings", "label": "Device Settings", "section": "ตั้งค่า", "viewPermission": "settings:manage", "editPermission": "settings:manage" },
+      { "id": "users", "label": "User Account / Permission", "section": "จัดการ", "viewPermission": "users:manage", "editPermission": "users:manage" }
+    ],
+    "roles": [
+      {
+        "id": "owner",
+        "label": "Owner",
+        "modulePermissions": [
+          { "moduleId": "pack", "canView": true, "canEdit": true },
+          { "moduleId": "reports", "canView": true, "canEdit": true },
+          { "moduleId": "connect", "canView": true, "canEdit": true },
+          { "moduleId": "labels", "canView": true, "canEdit": true },
+          { "moduleId": "settings", "canView": true, "canEdit": true },
+          { "moduleId": "users", "canView": true, "canEdit": true }
+        ]
+      },
+      {
+        "id": "admin",
+        "label": "Admin",
+        "modulePermissions": [
+          { "moduleId": "pack", "canView": true, "canEdit": true },
+          { "moduleId": "reports", "canView": true, "canEdit": true },
+          { "moduleId": "connect", "canView": true, "canEdit": true },
+          { "moduleId": "labels", "canView": true, "canEdit": true },
+          { "moduleId": "settings", "canView": true, "canEdit": true },
+          { "moduleId": "users", "canView": true, "canEdit": true }
+        ]
+      },
+      {
+        "id": "manager",
+        "label": "Manager",
+        "modulePermissions": [
+          { "moduleId": "pack", "canView": true, "canEdit": true },
+          { "moduleId": "reports", "canView": true, "canEdit": true },
+          { "moduleId": "connect", "canView": true, "canEdit": true },
+          { "moduleId": "labels", "canView": true, "canEdit": true },
+          { "moduleId": "settings", "canView": true, "canEdit": true },
+          { "moduleId": "users", "canView": false, "canEdit": false }
+        ]
+      },
+      {
+        "id": "packer",
+        "label": "Packer",
+        "modulePermissions": [
+          { "moduleId": "pack", "canView": true, "canEdit": true },
+          { "moduleId": "reports", "canView": false, "canEdit": false },
+          { "moduleId": "connect", "canView": false, "canEdit": false },
+          { "moduleId": "labels", "canView": false, "canEdit": false },
+          { "moduleId": "settings", "canView": false, "canEdit": false },
+          { "moduleId": "users", "canView": false, "canEdit": false }
+        ]
+      },
+      {
+        "id": "auditor",
+        "label": "Auditor",
+        "modulePermissions": [
+          { "moduleId": "pack", "canView": false, "canEdit": false },
+          { "moduleId": "reports", "canView": true, "canEdit": false },
+          { "moduleId": "connect", "canView": false, "canEdit": false },
+          { "moduleId": "labels", "canView": false, "canEdit": false },
+          { "moduleId": "settings", "canView": false, "canEdit": false },
+          { "moduleId": "users", "canView": false, "canEdit": false }
+        ]
+      },
+      {
+        "id": "custom",
+        "label": "Custom",
+        "modulePermissions": [
+          { "moduleId": "pack", "canView": false, "canEdit": false },
+          { "moduleId": "reports", "canView": false, "canEdit": false },
+          { "moduleId": "connect", "canView": false, "canEdit": false },
+          { "moduleId": "labels", "canView": false, "canEdit": false },
+          { "moduleId": "settings", "canView": false, "canEdit": false },
+          { "moduleId": "users", "canView": false, "canEdit": false }
+        ]
+      }
+    ],
+    "users": [
+      {
+        "id": "USR-ADMIN",
+        "email": "admin@hyd.furniture",
+        "name": "System Admin",
+        "roleId": "admin",
+        "employeeId": "EMP-0012",
+        "active": true,
+        "passwordSalt": "CHANGE_ME",
+        "passwordHash": "CHANGE_ME"
+      },
+      {
+        "id": "USR-MANAGER",
+        "email": "manager@hyd.furniture",
+        "name": "Pack Manager",
+        "roleId": "manager",
+        "employeeId": "EMP-0031",
+        "active": true,
+        "passwordSalt": "CHANGE_ME",
+        "passwordHash": "CHANGE_ME"
+      },
+      {
+        "id": "USR-PACKER",
+        "email": "packer@hyd.furniture",
+        "name": "Pack Staff",
+        "roleId": "packer",
+        "employeeId": "EMP-0008",
+        "active": true,
+        "passwordSalt": "CHANGE_ME",
+        "passwordHash": "CHANGE_ME"
+      },
+      {
+        "id": "USR-AUDITOR",
+        "email": "auditor@hyd.furniture",
+        "name": "Audit Viewer",
+        "roleId": "auditor",
+        "employeeId": "EMP-0019",
+        "active": true,
+        "passwordSalt": "CHANGE_ME",
+        "passwordHash": "CHANGE_ME"
+      }
+    ]
+  },
+  "packFlow": {
+    "closeBoxByRescanningAwb": true,
+    "allowForceCloseWithMissingItems": true,
+    "requireReasonForForceClose": true,
+    "requireLabelBeforePack": true,
+    "recordAudio": false
+  },
+  "systemAssets": {
+    "prePackGuideImage": {
+      "defaultUrl": "/assets/prepack-label-required.png",
+      "acceptedImageTypes": ["image/jpeg", "image/png", "image/webp"],
+      "maxImageSizeMb": 5
+    }
+  },
+  "devices": {
+    "camera": {
+      "defaultDeviceId": "browser-default",
+      "options": [
+        { "id": "browser-default", "label": "กล้องเริ่มต้นของ Browser" }
+      ]
+    },
+    "labelPrinter": {
+      "defaultDriverId": "browser-print",
+      "drivers": [
+        { "id": "browser-print", "label": "Browser Print Dialog" },
+        { "id": "tsc-te244", "label": "TSC TE244 / TTP Series" },
+        { "id": "xprinter-xp420b", "label": "Xprinter XP-420B" },
+        { "id": "zebra-zpl", "label": "Zebra / ZPL Compatible" }
+      ]
+    },
+    "barcodeScanner": {
+      "defaultMode": "usb-keyboard",
+      "modes": [
+        { "id": "usb-keyboard", "label": "USB Keyboard Wedge" },
+        { "id": "manual-input", "label": "Manual Input" }
+      ]
+    }
+  },
+  "upload": {
+    "provider": "nas",
+    "nasHost": "192.168.1.40",
+    "localNasPath": "local-nas/videos",
+    "defaultStorageTargetId": "local-machine",
+    "storageTargets": [
+      {
+        "id": "main-nas",
+        "label": "NAS หลัก",
+        "provider": "nas",
+        "host": "192.168.1.40",
+        "localPath": "local-nas/videos",
+        "isDefault": false
+      },
+      {
+        "id": "custom-nas",
+        "label": "NAS กำหนดเอง",
+        "provider": "nas",
+        "host": "กรอก path เอง",
+        "localPath": "local-nas/custom-nas",
+        "isDefault": false
+      },
+      {
+        "id": "local-machine",
+        "label": "เก็บที่เครื่องนี้",
+        "provider": "local",
+        "host": "localhost",
+        "localPath": "local-nas/this-machine",
+        "isDefault": true
+      },
+      {
+        "id": "local-backup",
+        "label": "สำรองในเครื่องนี้",
+        "provider": "local",
+        "host": "localhost",
+        "localPath": "local-nas/local-backup",
+        "isDefault": false
+      },
+      {
+        "id": "local-cloud-sync",
+        "label": "Cloud Sync",
+        "provider": "cloud-sync",
+        "host": "cloud sync folder",
+        "localPath": "local-nas/cloud-sync",
+        "isDefault": false
+      },
+      {
+        "id": "backup-nas",
+        "label": "NAS สำรอง",
+        "provider": "nas",
+        "host": "192.168.1.41",
+        "localPath": "local-nas/backup-nas",
+        "isDefault": false
+      }
+    ],
+    "maxVideoSizeMb": 2048,
+    "minVideoSizeBytes": 1024,
+    "uploadTimeoutSeconds": 900,
+    "retryLimit": 3,
+    "simulationSteps": [
+      {
+        "pct": 15,
+        "label": "หยุดบันทึกวิดีโอ"
+      },
+      {
+        "pct": 40,
+        "label": "บีบอัดไฟล์หลักฐาน"
+      },
+      {
+        "pct": 85,
+        "label": "ส่งไฟล์ไปยัง NAS"
+      },
+      {
+        "pct": 100,
+        "label": "ผูกไฟล์กับออเดอร์"
+      }
+    ]
+  },
+  "shareLinks": {
+    "publicBaseUrl": "https://clip.smartrecord.app",
+    "defaultExpiryDays": 30
+  },
+  "reports": {
+    "defaultDateRangeDays": 30,
+    "pageSize": 50,
+    "seedHistoricalRecords": true,
+    "seedHistoricalCount": 26
+  },
+  "integrations": {
+    "enabledPlatforms": ["shopee", "lazada", "tiktok", "3pl", "csv"],
+    "tokenRefreshWarningMinutes": 30,
+    "bulkImportConfirmThreshold": 5
+  },
+  "ocr": {
+    "engine": "tesseract",
+    "command": "tesseract",
+    "languages": "tha+eng",
+    "engineMode": 1,
+    "pageSegmentationMode": 6,
+    "tessdataDir": "",
+    "preserveInterwordSpaces": true,
+    "maxLabelFileSizeMb": 20,
+    "pdfCommand": "pdftoppm",
+    "pdfDpi": 300,
+    "maxPdfPages": 50,
+    "preprocessPdf": {
+      "enabled": false,
+      "command": "ocrmypdf",
+      "rotatePages": true,
+      "deskew": true,
+      "cleanFinal": true,
+      "skipText": true,
+      "forceOcr": false,
+      "redoOcr": false,
+      "optimize": 0,
+      "invalidateDigitalSignatures": true,
+      "continueOnSoftFail": true,
+      "extraArgs": []
+    },
+    "platforms": {
+      "shopee": {
+        "pageSegmentationMode": 6,
+        "pdfDpi": 300
+      },
+      "lazada": {
+        "pageSegmentationMode": 6,
+        "pdfDpi": 320,
+        "preserveInterwordSpaces": true
+      },
+      "tiktok": {
+        "pageSegmentationMode": 11,
+        "pdfDpi": 320,
+        "preserveInterwordSpaces": true
+      }
+    }
+  },
+  "labelPrint": {
+    "enabledPlatforms": ["shopee", "tiktok", "lazada"],
+    "acceptedImageTypes": ["image/jpeg", "image/png", "image/webp"],
+    "maxImageSizeMb": 5
+  }
+}
