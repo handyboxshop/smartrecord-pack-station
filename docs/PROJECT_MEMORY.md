@@ -65,7 +65,7 @@
   - Connect/Import ตั้งค่า Shopee, Lazada, TikTok Shop, 3PL และ sync/import mock orders
 - Prototype ยังเป็น mock ทั้งหมด:
   - `ORDER_DB`, `RECORDS`, `EMPLOYEES`, connection status และ order pool ฝังใน JS
-  - ค่า NAS `192.168.1.40`, station `STATION-07`, employee, timeout, file size formula, upload step threshold, URLs ฝังใน UI/JS
+  - ค่า NAS `YOUR_MAIN_NAS_IP`, station `STATION-07`, employee, timeout, file size formula, upload step threshold, URLs ฝังใน UI/JS
   - Client เป็นผู้ตัดสิน business flow เกือบทั้งหมด
 
 เพิ่ม MVP แรกใน `web/`:
@@ -164,12 +164,12 @@
 เพิ่มการเลือกที่จัดเก็บไฟล์:
 
 - Config กลาง `upload.storageTargets` มีตัวเลือก:
-  - `main-nas` ค่าเริ่มต้น: NAS หลัก `192.168.1.40`
+  - `main-nas` ค่าเริ่มต้น: NAS หลัก `YOUR_MAIN_NAS_IP`
   - `custom-nas`: NAS กำหนดเอง สำหรับกรอก Custom Path เอง
   - `local-machine`: เก็บลงเครื่องนี้
   - `local-backup`: สำรองในเครื่องนี้
   - `local-cloud-sync`: Cloud Sync
-  - `backup-nas`: NAS สำรอง `192.168.1.41`
+  - `backup-nas`: NAS สำรอง `YOUR_BACKUP_NAS_IP`
 - หน้า Pack Station มี dropdown `ที่จัดเก็บไฟล์วิดีโอ` พร้อมค่าเริ่มต้น
 - `startPackSession` รับ `storageTargetId` และ record เก็บ `storage.targetId/label/provider/host`
 - `/api/video/upload` รับ `storageTargetId` และเขียนไฟล์ไปยัง path ของ target ที่เลือก
@@ -186,7 +186,7 @@
 
 - Login trim อีเมลและรหัสผ่านหัวท้ายทั้ง frontend/backend เพื่อกันช่องว่างติดมาจากการ copy-paste
 - เพิ่ม test `login tolerates copy-pasted whitespace around credentials`
-- ตรวจ HTTP แล้ว `admin@hyd.furniture` / รหัสเดิม เข้าได้แม้มีช่องว่างหัวท้าย
+- ตรวจ HTTP แล้ว `admin@example.local` / รหัสเดิม เข้าได้แม้มีช่องว่างหัวท้าย
 
 ปรับ Employee ในหน้า User Admin:
 
@@ -262,10 +262,10 @@
   - `packer`: pack เท่านั้น
   - `auditor`: reports เท่านั้น
 - User เริ่มต้นเป็น password hash แบบ PBKDF2-SHA256 ไม่เก็บ plaintext:
-  - `admin@hyd.furniture` / `SmartRecord@2026`
-  - `manager@hyd.furniture` / `Manager@2026`
-  - `packer@hyd.furniture` / `Pack@2026`
-  - `auditor@hyd.furniture` / `Audit@2026`
+  - `admin@example.local` / `[กำหนดรหัสจริงใน app-config.json บน NAS]`
+  - `manager@example.local` / `Manager@2026`
+  - `packer@example.local` / `[กำหนดรหัสจริงใน app-config.json บน NAS]`
+  - `auditor@example.local` / `Audit@2026`
 - เพิ่ม `web/src/domain/authService.mjs`
   - login/logout/session token
   - role permission guard
@@ -474,7 +474,7 @@ UI polish ตามรายการ Login / Topbar / Settings:
 
 ## 2026-06-23 — ไม่สร้างลิงก์วิดีโอถ้าไม่มีไฟล์จริง
 
-- what: หน้าสรุปแสดงปุ่มคัดลอกลิงก์ เช่น `https://clip.smartrecord.app/v/...` ทั้งที่ `Video File` เป็น “ไม่มีไฟล์วิดีโอ”
+- what: หน้าสรุปแสดงปุ่มคัดลอกลิงก์ เช่น `https://YOUR_SHARE_DOMAIN/v/...` ทั้งที่ `Video File` เป็น “ไม่มีไฟล์วิดีโอ”
 - root cause: `packService.closePackSession()` สร้าง `shareLink` ตั้งแต่ปิดออเดอร์ ก่อนขั้นตอน upload/attach video จึงมี fake clip URL แม้ browser ไม่ได้ส่งไฟล์วิดีโอ
 - correct:
   - ตอน close session ตั้ง `record.shareLink = null`
@@ -488,7 +488,7 @@ UI polish ตามรายการ Login / Topbar / Settings:
 
 ## 2026-06-23 — shareLink ต้องชี้ไฟล์วิดีโอจริง
 
-- what: ผู้ใช้ต้องการให้ `shareLink` ยังมีอยู่ได้ แต่ต้องเป็นลิงก์จริงไปยังไฟล์วิดีโอที่บันทึกไว้ ไม่ใช่ fake URL `clip.smartrecord.app`
+- what: ผู้ใช้ต้องการให้ `shareLink` ยังมีอยู่ได้ แต่ต้องเป็นลิงก์จริงไปยังไฟล์วิดีโอที่บันทึกไว้ ไม่ใช่ fake URL `YOUR_SHARE_DOMAIN`
 - root cause: เดิม `shareLink` สร้างจาก config `shareLinks.publicBaseUrl` และไม่ได้ผูกกับไฟล์จริงบน storage
 - correct:
   - เพิ่ม endpoint `GET /api/video/stream/:recordId`
@@ -994,7 +994,7 @@ UI polish ตามรายการ Login / Topbar / Settings:
   - `node --check web/public/assets/app.js` ผ่าน
   - `npm test` ผ่าน 56/56
   - API verify:
-    - login `admin@hyd.furniture`
+    - login `admin@example.local`
     - import ตัวอย่าง Shopee ผ่าน `/api/orders/label/import`
     - `/api/labels` คืน `source: connect-import`, AWB `TH01288T6C4J4A`, order `2606047GU07A12`, `imageDataUrl: data:image/png;base64,...`
   - Browser verify:

@@ -63,33 +63,33 @@ const config = {
     users: [
       {
         id: "USR-OWNER",
-        email: "owner@hyd.furniture",
+        email: "owner@example.local",
         name: "Owner User",
         roleId: "owner",
         employeeId: "EMP-0012",
         active: true,
-        passwordSalt: "0d20d915c10e0bee06d41fb6",
-        passwordHash: "d1a9bb89a36c2a27706acbbff60152473c0bced738a0227225f600e221fb3d42"
+        passwordSalt: "a1b2c3d4e5f60718293a4b5c",
+        passwordHash: "20ae66f94a80e326b9b3c3089487c37b0ff71ddb68cffd9e832a249ac58be2a6"
       },
       {
         id: "USR-ADMIN",
-        email: "admin@hyd.furniture",
+        email: "admin@example.local",
         name: "System Admin",
         roleId: "admin",
         employeeId: "EMP-0012",
         active: true,
-        passwordSalt: "0d20d915c10e0bee06d41fb6",
-        passwordHash: "d1a9bb89a36c2a27706acbbff60152473c0bced738a0227225f600e221fb3d42"
+        passwordSalt: "a1b2c3d4e5f60718293a4b5c",
+        passwordHash: "20ae66f94a80e326b9b3c3089487c37b0ff71ddb68cffd9e832a249ac58be2a6"
       },
       {
         id: "USR-PACKER",
-        email: "packer@hyd.furniture",
+        email: "packer@example.local",
         name: "Pack Staff",
         roleId: "packer",
         employeeId: "EMP-0008",
         active: true,
-        passwordSalt: "63a4f505ce5c329165829753",
-        passwordHash: "68e146ccb72315ea2f724183bc716276626fe0acba3417893c6c990e1823a4d1"
+        passwordSalt: "f2e1d0c9b8a7968574635241",
+        passwordHash: "af968ea315cc602ebc820d8d249372dc9676b677311c85dfe34b7f3051b4039d"
       }
     ]
   }
@@ -98,11 +98,11 @@ const config = {
 test("login returns a session token and public user permissions", () => {
   const service = createService();
 
-  const result = service.login({ email: "admin@hyd.furniture", password: "SmartRecord@2026" });
+  const result = service.login({ email: "admin@example.local", password: "TestAdmin@Local" });
 
   assert.equal(result.ok, true);
   assert.equal(typeof result.data.token, "string");
-  assert.equal(result.data.user.email, "admin@hyd.furniture");
+  assert.equal(result.data.user.email, "admin@example.local");
   assert.equal(result.data.user.employeeName, "สมชาย ป.");
   assert.equal(result.data.user.permissions.includes("users:manage"), true);
   assert.equal(result.data.user.passwordHash, undefined);
@@ -111,16 +111,16 @@ test("login returns a session token and public user permissions", () => {
 test("login tolerates copy-pasted whitespace around credentials", () => {
   const service = createService();
 
-  const result = service.login({ email: " admin@hyd.furniture ", password: " SmartRecord@2026 " });
+  const result = service.login({ email: " admin@example.local ", password: " TestAdmin@Local " });
 
   assert.equal(result.ok, true);
-  assert.equal(result.data.user.email, "admin@hyd.furniture");
+  assert.equal(result.data.user.email, "admin@example.local");
 });
 
 test("login rejects an invalid password", () => {
   const service = createService();
 
-  const result = service.login({ email: "admin@hyd.furniture", password: "wrong-password" });
+  const result = service.login({ email: "admin@example.local", password: "wrong-password" });
 
   assert.equal(result.ok, false);
   assert.equal(result.code, "INVALID_LOGIN");
@@ -128,7 +128,7 @@ test("login rejects an invalid password", () => {
 
 test("permission guard rejects users without a required permission", () => {
   const service = createService();
-  const login = service.login({ email: "packer@hyd.furniture", password: "Pack@2026" });
+  const login = service.login({ email: "packer@example.local", password: "TestPacker@Local" });
 
   const result = service.listUsers(login.data.token);
 
@@ -138,10 +138,10 @@ test("permission guard rejects users without a required permission", () => {
 
 test("admin can create a user and password policy is enforced", () => {
   const service = createService();
-  const login = service.login({ email: "admin@hyd.furniture", password: "SmartRecord@2026" });
+  const login = service.login({ email: "admin@example.local", password: "TestAdmin@Local" });
 
   const tooShort = service.createUser(login.data.token, {
-    email: "new@hyd.furniture",
+    email: "new@example.local",
     roleId: "packer",
     password: "short"
   });
@@ -149,15 +149,15 @@ test("admin can create a user and password policy is enforced", () => {
   assert.equal(tooShort.code, "PASSWORD_TOO_SHORT");
 
   const created = service.createUser(login.data.token, {
-    email: "new@hyd.furniture",
+    email: "new@example.local",
     name: "New Packer",
     roleId: "packer",
     employeeName: "พนักงานใหม่",
     employeeId: "EMP-0099",
-    password: "StrongPass2026"
+    password: "ExampleStrongPass123!"
   });
   assert.equal(created.ok, true);
-  assert.equal(created.data.email, "new@hyd.furniture");
+  assert.equal(created.data.email, "new@example.local");
   assert.equal(created.data.roleId, "packer");
   assert.equal(created.data.employeeName, "พนักงานใหม่");
   assert.equal(created.data.employeeId, "EMP-0099");
@@ -167,23 +167,23 @@ test("admin can create a user and password policy is enforced", () => {
 
 test("custom role stores module permissions and normalizes edit to view", () => {
   const service = createService();
-  const login = service.login({ email: "admin@hyd.furniture", password: "SmartRecord@2026" });
+  const login = service.login({ email: "admin@example.local", password: "TestAdmin@Local" });
 
   const missingName = service.createUser(login.data.token, {
-    email: "custom@hyd.furniture",
+    email: "custom@example.local",
     roleId: "custom",
-    password: "StrongPass2026",
+    password: "ExampleStrongPass123!",
     modulePermissions: [{ moduleId: "reports", canView: false, canEdit: true }]
   });
   assert.equal(missingName.ok, false);
   assert.equal(missingName.code, "CUSTOM_ROLE_NAME_REQUIRED");
 
   const created = service.createUser(login.data.token, {
-    email: "custom@hyd.furniture",
+    email: "custom@example.local",
     name: "Custom Viewer",
     roleId: "custom",
     roleName: "หัวหน้าตรวจสอบ",
-    password: "StrongPass2026",
+    password: "ExampleStrongPass123!",
     modulePermissions: [{ moduleId: "reports", canView: false, canEdit: true }]
   });
 
@@ -195,12 +195,12 @@ test("custom role stores module permissions and normalizes edit to view", () => 
 
 test("user updates capture detailed audit changes and activity history", () => {
   const service = createService();
-  const login = service.login({ email: "admin@hyd.furniture", password: "SmartRecord@2026" });
+  const login = service.login({ email: "admin@example.local", password: "TestAdmin@Local" });
   const created = service.createUser(login.data.token, {
-    email: "history@hyd.furniture",
+    email: "history@example.local",
     name: "History User",
     roleId: "packer",
-    password: "StrongPass2026"
+    password: "ExampleStrongPass123!"
   });
 
   const updated = service.updateUser(login.data.token, {
@@ -224,19 +224,19 @@ test("user updates capture detailed audit changes and activity history", () => {
     moduleId: "reports",
     details: "เปิดดูรายงาน"
   });
-  const activity = service.listActivity(login.data.token, { email: "admin@hyd.furniture" });
+  const activity = service.listActivity(login.data.token, { email: "admin@example.local" });
   assert.equal(activity.ok, true);
   assert.equal(activity.data.some((log) => log.action === "reports_view"), true);
 });
 
 test("admin can delete users and audit log records who deleted whom", () => {
   const service = createService();
-  const login = service.login({ email: "admin@hyd.furniture", password: "SmartRecord@2026" });
+  const login = service.login({ email: "admin@example.local", password: "TestAdmin@Local" });
   const created = service.createUser(login.data.token, {
-    email: "delete-me@hyd.furniture",
+    email: "delete-me@example.local",
     name: "Delete Me",
     roleId: "packer",
-    password: "StrongPass2026"
+    password: "ExampleStrongPass123!"
   });
 
   const deleted = service.deleteUser(login.data.token, { email: created.data.email });
@@ -245,25 +245,25 @@ test("admin can delete users and audit log records who deleted whom", () => {
   const users = service.listUsers(login.data.token).data;
   assert.equal(users.users.some((user) => user.email === created.data.email), false);
   assert.equal(users.auditLogs[0].action, "delete_user");
-  assert.equal(users.auditLogs[0].actorEmail, "admin@hyd.furniture");
-  assert.equal(users.auditLogs[0].targetEmail, "delete-me@hyd.furniture");
-  assert.equal(users.activityLogs.some((log) => log.action === "delete_user" && log.targetEmail === "delete-me@hyd.furniture"), true);
+  assert.equal(users.auditLogs[0].actorEmail, "admin@example.local");
+  assert.equal(users.auditLogs[0].targetEmail, "delete-me@example.local");
+  assert.equal(users.activityLogs.some((log) => log.action === "delete_user" && log.targetEmail === "delete-me@example.local"), true);
 });
 
 test("delete user guard blocks self delete, owner delete, and non admin roles", () => {
   const service = createService();
-  const admin = service.login({ email: "admin@hyd.furniture", password: "SmartRecord@2026" });
-  const packer = service.login({ email: "packer@hyd.furniture", password: "Pack@2026" });
+  const admin = service.login({ email: "admin@example.local", password: "TestAdmin@Local" });
+  const packer = service.login({ email: "packer@example.local", password: "TestPacker@Local" });
 
-  const selfDelete = service.deleteUser(admin.data.token, { email: "admin@hyd.furniture" });
+  const selfDelete = service.deleteUser(admin.data.token, { email: "admin@example.local" });
   assert.equal(selfDelete.ok, false);
   assert.equal(selfDelete.code, "DELETE_SELF_FORBIDDEN");
 
-  const ownerDelete = service.deleteUser(admin.data.token, { email: "owner@hyd.furniture" });
+  const ownerDelete = service.deleteUser(admin.data.token, { email: "owner@example.local" });
   assert.equal(ownerDelete.ok, false);
   assert.equal(ownerDelete.code, "DELETE_OWNER_FORBIDDEN");
 
-  const nonAdminDelete = service.deleteUser(packer.data.token, { email: "admin@hyd.furniture" });
+  const nonAdminDelete = service.deleteUser(packer.data.token, { email: "admin@example.local" });
   assert.equal(nonAdminDelete.ok, false);
   assert.equal(nonAdminDelete.code, "FORBIDDEN");
 });
