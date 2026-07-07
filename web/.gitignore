@@ -28,3 +28,5 @@ uploads/
 uploads/**
 db/
 db/**
+# Production config — do not commit
+config/app-config.json

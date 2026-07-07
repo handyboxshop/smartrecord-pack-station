@@ -19,3 +19,6 @@ local-nas/**
 # Runtime files — written by server automatically, do not commit
 web/data/app-settings.json
 **/app-settings.json
+# Production config / runtime data — do not commit
+**/app-config.json
+deploy/smartrecord-data/

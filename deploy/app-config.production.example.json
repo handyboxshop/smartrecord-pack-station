@@ -1,0 +1,37 @@
+{
+  "_note": "Public-safe production config template. Copy the full schema from web/config/app-config.example.json, then replace these values before deploying.",
+  "_see_full_schema": "../web/config/app-config.example.json",
+  "app": {
+    "demoMode": false
+  },
+  "auth": {
+    "users": [
+      {
+        "email": "admin@example.local",
+        "passwordSalt": "CHANGE_ME",
+        "passwordHash": "CHANGE_ME"
+      }
+    ]
+  },
+  "upload": {
+    "nasHost": "YOUR_NAS_IP",
+    "storageTargets": [
+      {
+        "id": "main-nas",
+        "host": "YOUR_MAIN_NAS_IP",
+        "localPath": "/data/smartrecord/videos"
+      },
+      {
+        "id": "backup-nas",
+        "host": "YOUR_BACKUP_NAS_IP",
+        "localPath": "/data/smartrecord/backup"
+      }
+    ]
+  },
+  "shareLinks": {
+    "publicBaseUrl": "https://YOUR_SHARE_DOMAIN"
+  },
+  "reports": {
+    "seedHistoricalRecords": false
+  }
+}
