@@ -25,6 +25,8 @@ const publicDir = path.join(rootDir, "public");
 const serviceName = "smartrecord-pack-station";
 const mode = process.env.NODE_ENV || "development";
 const host = process.env.HOST || (mode === "production" ? "0.0.0.0" : "127.0.0.1");
+const jsonBodyLimitBytes = Number(process.env.SMARTRECORD_JSON_BODY_LIMIT_BYTES || 2 * 1024 * 1024);
+const shutdownTimeoutMs = Number(process.env.SMARTRECORD_SHUTDOWN_TIMEOUT_MS || 10000);
 
 const configPath = resolveRuntimePath(process.env.SMARTRECORD_CONFIG_PATH, path.join(rootDir, "config", "app-config.example.json"));
 const ordersPath = resolveRuntimePath(process.env.SMARTRECORD_ORDERS_PATH, path.join(rootDir, "data", "mock-orders.json"));
@@ -64,6 +66,18 @@ const server = http.createServer(async (req, res) => {
 
     await serveStatic(res, url.pathname);
   } catch (error) {
+    if (error?.code === "JSON_TOO_LARGE") {
+      sendResult(res, {
+        ok: false,
+        code: "JSON_TOO_LARGE",
+        message: `JSON request body must not exceed ${Math.round(jsonBodyLimitBytes / 1024 / 1024)} MB`
+      });
+      return;
+    }
+    if (error instanceof SyntaxError) {
+      sendResult(res, { ok: false, code: "INVALID_JSON", message: "Invalid JSON request body" });
+      return;
+    }
     sendJson(res, 500, apiErrorPayload("SERVER_ERROR", error.message || "Server error"));
   }
 });
@@ -86,6 +100,32 @@ server.listen(port, host, () => {
   console.log(`[startup] routes=GET /api/health, GET /api/config, POST /api/auth/login`);
   console.log(`[startup] health=${healthUrl} ready`);
 });
+
+let shuttingDown = false;
+
+function gracefulShutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[shutdown] ${signal} received, closing ${serviceName}`);
+
+  const timer = setTimeout(() => {
+    console.error(`[shutdown] forced exit after ${shutdownTimeoutMs}ms`);
+    process.exit(1);
+  }, shutdownTimeoutMs);
+  timer.unref?.();
+
+  server.close((error) => {
+    if (error) {
+      console.error(`[shutdown] close failed: ${error.message}`);
+      process.exit(1);
+    }
+    console.log("[shutdown] closed cleanly");
+    process.exit(0);
+  });
+}
+
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
 async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/health") {
@@ -1097,11 +1137,25 @@ async function serveStatic(res, requestPath) {
   }
 }
 
-async function readJson(req) {
+async function readJson(req, maxBytes = jsonBodyLimitBytes) {
   const chunks = [];
-  for await (const chunk of req) chunks.push(chunk);
+  let total = 0;
+
+  for await (const chunk of req) {
+    total += chunk.length;
+    if (total > maxBytes) {
+      const error = new Error("JSON request body too large");
+      error.code = "JSON_TOO_LARGE";
+      error.maxBytes = maxBytes;
+      throw error;
+    }
+    chunks.push(chunk);
+  }
+
   if (chunks.length === 0) return {};
-  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  const text = Buffer.concat(chunks).toString("utf8").trim();
+  if (!text) return {};
+  return JSON.parse(text);
 }
 
 async function readBinary(req, maxBytes, tooLargeCode = "VIDEO_TOO_LARGE") {

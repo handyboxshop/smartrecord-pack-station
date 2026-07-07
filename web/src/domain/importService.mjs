@@ -397,17 +397,6 @@ function normalizePlatform(platform) {
   return "custom";
 }
 
-function buildItems(meta) {
-  return Array.from({ length: meta.items }, (_, index) => {
-    const template = ITEM_TEMPLATES[index % ITEM_TEMPLATES.length];
-    return {
-      sku: `${template.sku}-${meta.awb.slice(-3)}`,
-      name: `${template.name} (${meta.awb.slice(-4)})`,
-      qty: template.qty,
-      barcode: String(Number(template.barcode) + index + meta.awb.length).padStart(13, "0")
-    };
-  });
-}
 
 function normalizeItemLines(lines, awb) {
   return normalizeItemLinesWithOptions(lines, awb, {});

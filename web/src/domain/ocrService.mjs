@@ -132,18 +132,40 @@ export async function preprocessPdfForOcr({ filePath, outputPath, config = {} } 
   if (!preprocess.enabled) {
     return { ok: true, data: { filePath, usedPreprocessing: false, warnings: [] } };
   }
+
   const command = preprocess.command || "ocrmypdf";
   const args = buildOcrmypdfArgs(filePath, outputPath, config);
+  const timeoutMs = Number(preprocess.timeoutMs || 120000);
 
   return new Promise((resolve) => {
     const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
     const stderr = [];
+    let settled = false;
+    let timeout = null;
+
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      if (timeout) clearTimeout(timeout);
+      resolve(result);
+    };
+
+    if (timeoutMs > 0) {
+      timeout = setTimeout(() => {
+        child.kill("SIGTERM");
+        const forceKill = setTimeout(() => child.kill("SIGKILL"), 2000);
+        forceKill.unref?.();
+        finish(fail("PDF_PREPROCESSOR_TIMEOUT", `OCRmyPDF ใช้เวลานานเกิน ${timeoutMs}ms และถูกหยุดการทำงาน`));
+      }, timeoutMs);
+      timeout.unref?.();
+    }
 
     child.stderr.on("data", (chunk) => stderr.push(chunk));
+
     child.on("error", (error) => {
       if (error.code === "ENOENT") {
         if (preprocess.continueOnSoftFail) {
-          resolve({
+          finish({
             ok: true,
             data: {
               filePath,
@@ -153,16 +175,18 @@ export async function preprocessPdfForOcr({ filePath, outputPath, config = {} } 
           });
           return;
         }
-        resolve(fail("PDF_PREPROCESSOR_NOT_AVAILABLE", `ยังไม่พบ PDF preprocessor (${command}) กรุณาติดตั้ง OCRmyPDF หรือปิด preprocessPdf ก่อน`));
+        finish(fail("PDF_PREPROCESSOR_NOT_AVAILABLE", `ยังไม่พบ PDF preprocessor (${command}) กรุณาติดตั้ง OCRmyPDF หรือปิด preprocessPdf ก่อน`));
         return;
       }
-      resolve(fail("PDF_PREPROCESSOR_ERROR", error.message));
+      finish(fail("PDF_PREPROCESSOR_ERROR", error.message));
     });
+
     child.on("close", (code) => {
+      if (settled) return;
       if (code !== 0) {
         const stderrText = Buffer.concat(stderr).toString("utf8").trim() || "preprocess PDF ไม่สำเร็จ";
         if (preprocess.continueOnSoftFail) {
-          resolve({
+          finish({
             ok: true,
             data: {
               filePath,
@@ -172,10 +196,10 @@ export async function preprocessPdfForOcr({ filePath, outputPath, config = {} } 
           });
           return;
         }
-        resolve(fail("PDF_PREPROCESSOR_ERROR", stderrText));
+        finish(fail("PDF_PREPROCESSOR_ERROR", stderrText));
         return;
       }
-      resolve({ ok: true, data: { filePath: outputPath, usedPreprocessing: true, warnings: [] } });
+      finish({ ok: true, data: { filePath: outputPath, usedPreprocessing: true, warnings: [] } });
     });
   });
 }

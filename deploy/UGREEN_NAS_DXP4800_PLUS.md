@@ -115,3 +115,64 @@ docker compose -f docker-compose.ugreen.yml down
 ```text
 deploy/smartrecord-data/local-nas
 ```
+
+---
+
+## Stage 2A Production Runtime Checklist
+
+ก่อน Deploy จริงบน UGREEN NAS ให้เตรียม runtime data ตามโครงสร้างนี้ในโฟลเดอร์ deploy/smartrecord-data
+
+โครงสร้างที่ต้องมี:
+
+deploy/
+  docker-compose.ugreen.yml
+  smartrecord-data/
+    config/
+      app-config.json
+    data/
+      orders.json
+      sync-orders.json
+    local-nas/
+      videos/
+      labels/
+      cloud-sync/
+
+ไฟล์ที่ต้องมีบน NAS:
+
+- smartrecord-data/config/app-config.json
+  - config จริงสำหรับ production
+  - ห้าม commit ขึ้น GitHub
+
+- smartrecord-data/data/orders.json
+  - runtime orders
+  - ใช้กับ SMARTRECORD_ORDERS_PATH
+
+- smartrecord-data/data/sync-orders.json
+  - runtime sync/import orders
+  - ใช้กับ SMARTRECORD_SYNC_ORDERS_PATH
+
+- smartrecord-data/local-nas/videos/
+  - เก็บวิดีโอแพคสินค้า
+
+- smartrecord-data/local-nas/labels/
+  - เก็บไฟล์ใบปะหน้า/OCR
+
+ตรวจ health หลังเปิด container:
+
+เปิด URL นี้ใน Browser:
+
+http://YOUR_NAS_IP:4173/api/health
+
+ถ้าปกติควรได้ JSON ที่มีค่า:
+
+ok: true
+service: smartrecord-pack-station
+mode: production
+
+ข้อควรระวัง:
+
+- ห้ามใช้ app-config.example.json เป็นไฟล์จริงบน production
+- ห้าม commit app-config.json, orders.json, sync-orders.json ที่มีข้อมูลจริง
+- docker-compose.ugreen.yml กำหนด NODE_ENV=production, platform=linux/amd64, resource limit และ healthcheck แล้ว
+- ถ้าเปลี่ยน port ต้องแก้ทั้ง compose และ URL ที่ใช้เปิดเว็บ
+
