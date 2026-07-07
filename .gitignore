@@ -15,3 +15,7 @@ local-nas/
 web/local-nas/
 web/local-nas/**
 local-nas/**
+
+# Runtime files — written by server automatically, do not commit
+web/data/app-settings.json
+**/app-settings.json
