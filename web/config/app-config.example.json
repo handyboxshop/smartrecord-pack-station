@@ -112,7 +112,7 @@
     "users": [
       {
         "id": "USR-ADMIN",
-        "email": "admin@hyd.furniture",
+        "email": "admin@example.local",
         "name": "System Admin",
         "roleId": "admin",
         "employeeId": "EMP-0012",
@@ -122,7 +122,7 @@
       },
       {
         "id": "USR-MANAGER",
-        "email": "manager@hyd.furniture",
+        "email": "manager@example.local",
         "name": "Pack Manager",
         "roleId": "manager",
         "employeeId": "EMP-0031",
@@ -132,7 +132,7 @@
       },
       {
         "id": "USR-PACKER",
-        "email": "packer@hyd.furniture",
+        "email": "packer@example.local",
         "name": "Pack Staff",
         "roleId": "packer",
         "employeeId": "EMP-0008",
@@ -142,7 +142,7 @@
       },
       {
         "id": "USR-AUDITOR",
-        "email": "auditor@hyd.furniture",
+        "email": "auditor@example.local",
         "name": "Audit Viewer",
         "roleId": "auditor",
         "employeeId": "EMP-0019",
@@ -192,7 +192,7 @@
   },
   "upload": {
     "provider": "nas",
-    "nasHost": "192.168.1.40",
+    "nasHost": "YOUR_NAS_IP",
     "localNasPath": "local-nas/videos",
     "defaultStorageTargetId": "local-machine",
     "storageTargets": [
@@ -200,7 +200,7 @@
         "id": "main-nas",
         "label": "NAS หลัก",
         "provider": "nas",
-        "host": "192.168.1.40",
+        "host": "YOUR_MAIN_NAS_IP",
         "localPath": "local-nas/videos",
         "isDefault": false
       },
@@ -240,7 +240,7 @@
         "id": "backup-nas",
         "label": "NAS สำรอง",
         "provider": "nas",
-        "host": "192.168.1.41",
+        "host": "YOUR_BACKUP_NAS_IP",
         "localPath": "local-nas/backup-nas",
         "isDefault": false
       }
@@ -269,7 +269,7 @@
     ]
   },
   "shareLinks": {
-    "publicBaseUrl": "https://clip.smartrecord.app",
+    "publicBaseUrl": "https://YOUR_SHARE_DOMAIN",
     "defaultExpiryDays": 30
   },
   "reports": {
