@@ -845,7 +845,7 @@
       <div class="upload-steps">
         <div class="ustep" id="ustep1"><span class="mk">○</span>หยุดบันทึกวิดีโอ</div>
         <div class="ustep" id="ustep2"><span class="mk">○</span>เข้ารหัสและบีบอัดไฟล์</div>
-        <div class="ustep" id="ustep3"><span class="mk">○</span>ส่งไฟล์ไปยัง NAS (192.168.1.40)</div>
+        <div class="ustep" id="ustep3"><span class="mk">○</span>ส่งไฟล์ไปยัง NAS (YOUR_NAS_IP)</div>
         <div class="ustep" id="ustep4"><span class="mk">○</span>ผูกไฟล์กับเลขออเดอร์ในระบบ</div>
       </div>
     </div>
@@ -865,7 +865,7 @@
         <div class="rline"><span>เวลาที่ใช้แพค</span><span id="rDuration">—</span></div>
         <div class="rline"><span>พนักงาน</span><span>สมชาย ป. (EMP-0012)</span></div>
         <div class="rline"><span>ความยาวคลิป</span><span id="rClipLen">—</span></div>
-        <div class="rline"><span>ที่จัดเก็บ</span><span id="rStorage">NAS · 192.168.1.40</span></div>
+        <div class="rline"><span>ที่จัดเก็บ</span><span id="rStorage">NAS · YOUR_NAS_IP</span></div>
         <div class="rline"><span>สถานะ</span><span id="rStatus" style="color:var(--go-bright)">●  ตรวจสอบผ่าน</span></div>
       </div>
 
@@ -1198,7 +1198,7 @@
       <div class="dg-row"><span>ระยะเวลาแพค</span><b id="detDuration">—</b></div>
       <div class="dg-row"><span>ขนาดไฟล์</span><b id="detSize">—</b></div>
       <div class="dg-row"><span>สถานี</span><b>STATION-07</b></div>
-      <div class="dg-row"><span>จัดเก็บที่</span><b>NAS · 192.168.1.40</b></div>
+      <div class="dg-row"><span>จัดเก็บที่</span><b>NAS · YOUR_NAS_IP</b></div>
       <div class="dg-row"><span>สถานะ</span><b id="detStatus">—</b></div>
     </div>
 
@@ -1267,7 +1267,7 @@
         sizeMb: parseFloat(sizeMb),
         itemSummary: (2+Math.floor(Math.random()*4)) + ' รายการ',
         status: warn ? 'warn' : 'pass',
-        link: 'https://clip.smartrecord.app/v/' + Math.random().toString(36).slice(2,9)
+        link: 'https://YOUR_SHARE_DOMAIN/v/' + Math.random().toString(36).slice(2,9)
       });
     }
     return recs.sort((a,b)=> b.timestamp - a.timestamp);
@@ -1553,7 +1553,7 @@
     }
 
     const fakeHash = Math.random().toString(36).slice(2,9);
-    const link = `https://clip.smartrecord.app/v/${fakeHash}`;
+    const link = `https://YOUR_SHARE_DOMAIN/v/${fakeHash}`;
     document.getElementById('shareLink').value = link;
 
     // Push this real completed pack into the RECORDS store -> shows up instantly in Reports/Search

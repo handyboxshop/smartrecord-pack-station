@@ -97,8 +97,8 @@ cloud-sync/
 
 ## Recommended Network Setup
 
-- ให้ NAS มี static IP เช่น `192.168.1.40`
-- ให้เครื่อง Pack Station เปิดเว็บผ่าน `http://192.168.1.40:4173`
+- ให้ NAS มี static IP เช่น `YOUR_NAS_IP`
+- ให้เครื่อง Pack Station เปิดเว็บผ่าน `http://YOUR_NAS_IP:4173`
 - กล้อง/เครื่องพิมพ์/Barcode scanner ต่ออยู่กับ Windows/macOS Pack Station
 - NAS ทำหน้าที่เป็น server + storage กลาง
 

@@ -6,7 +6,7 @@
 
 - เปลี่ยน brand display หลักในหน้า login และ header เป็น `HYD FURNITURE`
 - คงชื่อระบบ `SmartRecord Pack Station` และ subtitle `SMARTRECORD PACK STATION`
-- เปลี่ยน placeholder อีเมลแสดงผลเป็น `user@hyd.furniture`
+- เปลี่ยน placeholder อีเมลแสดงผลเป็น `user@example.local`
 - อัปเดต asset โลโก้หลักเป็น `web/public/assets/hyd-furniture-logo.png`
 - ปรับ CSS theme token หลักเป็นโทน warm wood / cream / charcoal:
   - `--brand-primary: #A66A32`
@@ -263,9 +263,9 @@
   - `auditor`: reports เท่านั้น
 - User เริ่มต้นเป็น password hash แบบ PBKDF2-SHA256 ไม่เก็บ plaintext:
   - `admin@example.local` / `[กำหนดรหัสจริงใน app-config.json บน NAS]`
-  - `manager@example.local` / `Manager@2026`
+  - `manager@example.local` / `[กำหนดรหัสจริงใน app-config.json บน NAS]`
   - `packer@example.local` / `[กำหนดรหัสจริงใน app-config.json บน NAS]`
-  - `auditor@example.local` / `Audit@2026`
+  - `auditor@example.local` / `[กำหนดรหัสจริงใน app-config.json บน NAS]`
 - เพิ่ม `web/src/domain/authService.mjs`
   - login/logout/session token
   - role permission guard
@@ -321,7 +321,7 @@
   - Admin เห็น matrix ครบ 5 โมดูล
   - Preset role lock checkbox
   - เลือก Custom แล้ว checkbox ปลดล็อก
-  - สร้าง `station-lead@hyd.furniture` พร้อม custom role ได้
+  - สร้าง `station-lead@example.local` พร้อม custom role ได้
   - audit log เกิด 1 event ใน session dev
 - Automated tests ครอบ custom role และ permission normalization แล้ว; test รวมผ่าน 14 รายการ
 

@@ -13,14 +13,14 @@ const baseConfig = {
   },
   upload: {
     provider: "nas",
-    nasHost: "192.168.1.40",
+    nasHost: "192.0.2.40",
     defaultStorageTargetId: "local-machine",
     storageTargets: [
       {
         id: "main-nas",
         label: "NAS หลัก",
         provider: "nas",
-        host: "192.168.1.40",
+        host: "192.0.2.40",
         localPath: "local-nas/videos",
         isDefault: false
       },
@@ -55,7 +55,7 @@ const baseConfig = {
     ]
   },
   shareLinks: {
-    publicBaseUrl: "https://clip.smartrecord.app"
+    publicBaseUrl: "https://share.example.local"
   },
   reports: {
     seedHistoricalRecords: false

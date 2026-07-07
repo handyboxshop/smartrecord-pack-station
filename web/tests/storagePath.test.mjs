@@ -17,7 +17,7 @@ const nasStorageTarget = {
   id: "main-nas",
   label: "NAS หลัก",
   provider: "nas",
-  host: "192.168.1.40",
+  host: "192.0.2.40",
   localPath: "local-nas/videos"
 };
 const localMachineTarget = {
@@ -174,7 +174,7 @@ test("custom nas rejects ip address as non-writable mounted path", () => {
   const result = resolveStorageRoot({
     rootDir,
     storageTarget: customNasStorageTarget,
-    customPath: "192.168.1.40"
+    customPath: "192.0.2.40"
   });
 
   assert.equal(result.ok, false);
