@@ -374,6 +374,7 @@ async function handleApi(req, res, url) {
     if (!auth.ok) return sendResult(res, auth);
     const body = await readJson(req);
     const result = importService.importOrders(body);
+    if (result.ok) await persistOrders();
     if (result.ok) authService.recordActivity(token, {
       action: "orders_import",
       moduleId: "connect",
@@ -389,6 +390,7 @@ async function handleApi(req, res, url) {
     if (!auth.ok) return sendResult(res, auth);
     const body = await readJson(req);
     const result = importService.createManualOrder(body);
+    if (result.ok) await persistOrders();
     if (result.ok) authService.recordActivity(token, {
       action: "orders_manual_create",
       moduleId: "connect",
@@ -404,6 +406,7 @@ async function handleApi(req, res, url) {
     const auth = requireAnyPermission(token, ["integrations:manage", "labels:manage"]);
     if (!auth.ok) return sendResult(res, auth);
     const result = await importShippingLabel(req, url);
+    if (result.ok) await persistOrders();
     if (result.ok) authService.recordActivity(token, {
       action: "orders_label_import",
       moduleId: "connect",
@@ -433,6 +436,7 @@ async function handleApi(req, res, url) {
     if (result.ok && labelSync?.ok) {
       result.data.updatedLabels = labelSync.data.updatedCount;
     }
+    if (result.ok) await persistOrders();
     if (result.ok) authService.recordActivity(token, {
       action: "orders_manual_update",
       moduleId: "connect",
@@ -453,6 +457,7 @@ async function handleApi(req, res, url) {
     if (result.ok && labelCleanup?.ok) {
       result.data.deletedLabels = labelCleanup.data.deletedCount;
     }
+    if (result.ok) await persistOrders();
     if (result.ok) authService.recordActivity(token, {
       action: "orders_manual_delete",
       moduleId: "connect",
@@ -621,6 +626,17 @@ async function loadAppSettings() {
 async function writeAppSettings(settings) {
   await fs.mkdir(path.dirname(appSettingsPath), { recursive: true });
   await fs.writeFile(appSettingsPath, `${JSON.stringify(settings, null, 2)}\n`);
+}
+
+async function persistOrders() {
+  await writeJsonFile(ordersPath, orders);
+}
+
+async function writeJsonFile(filePath, data) {
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  await fs.writeFile(tempPath, `${JSON.stringify(data, null, 2)}\n`);
+  await fs.rename(tempPath, filePath);
 }
 
 async function ensureRuntimeFolders() {
