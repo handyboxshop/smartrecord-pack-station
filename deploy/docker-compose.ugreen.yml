@@ -16,6 +16,7 @@ services:
       SMARTRECORD_CONFIG_PATH: /data/smartrecord/config/app-config.json
       SMARTRECORD_ORDERS_PATH: /data/smartrecord/data/orders.json
       SMARTRECORD_SYNC_ORDERS_PATH: /data/smartrecord/data/sync-orders.json
+      SMARTRECORD_PACK_RECORDS_PATH: /data/smartrecord/data/pack-records.json
       SMARTRECORD_RUNTIME_ROOT: /data/smartrecord
     ports:
       - "4173:4173"

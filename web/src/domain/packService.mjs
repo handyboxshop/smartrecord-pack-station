@@ -1,11 +1,13 @@
 import crypto from "node:crypto";
 
-export function createPackService({ config, orders, now = () => new Date(), idFactory } = {}) {
+export function createPackService({ config, orders, records: initialRecords, now = () => new Date(), idFactory } = {}) {
   if (!config) throw new Error("config is required");
   if (!orders) throw new Error("orders is required");
 
   const sessions = new Map();
-  const records = config.reports?.seedHistoricalRecords ? seedHistoricalRecords(config, now) : [];
+  const records = Array.isArray(initialRecords)
+    ? initialRecords
+    : (config.reports?.seedHistoricalRecords ? seedHistoricalRecords(config, now) : []);
   const nextId = idFactory ?? (() => crypto.randomUUID());
 
   function startPackSession({ awb, platform, employeeId, stationId, storageTargetId } = {}) {

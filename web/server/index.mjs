@@ -31,17 +31,21 @@ const shutdownTimeoutMs = Number(process.env.SMARTRECORD_SHUTDOWN_TIMEOUT_MS || 
 const configPath = resolveRuntimePath(process.env.SMARTRECORD_CONFIG_PATH, path.join(rootDir, "config", "app-config.example.json"));
 const ordersPath = resolveRuntimePath(process.env.SMARTRECORD_ORDERS_PATH, path.join(rootDir, "data", "mock-orders.json"));
 const syncOrdersPath = resolveRuntimePath(process.env.SMARTRECORD_SYNC_ORDERS_PATH, path.join(rootDir, "data", "mock-sync-orders.json"));
+const packRecordsPath = resolveRuntimePath(process.env.SMARTRECORD_PACK_RECORDS_PATH, path.join(rootDir, "data", "pack-records.json"));
 const appSettingsPath = resolveRuntimePath(process.env.SMARTRECORD_APP_SETTINGS_PATH, path.join(rootDir, "data", "app-settings.json"));
 
 let config;
 let orders;
 let syncOrders;
+let packRecords;
 let appSettings;
 
 try {
   config = JSON.parse(await fs.readFile(configPath, "utf8"));
   orders = JSON.parse(await fs.readFile(ordersPath, "utf8"));
   syncOrders = JSON.parse(await fs.readFile(syncOrdersPath, "utf8"));
+  packRecords = await loadJsonFile(packRecordsPath, null);
+  if (packRecords !== null && !Array.isArray(packRecords)) throw new Error("pack records must be an array");
   appSettings = await loadAppSettings();
   await ensureRuntimeFolders();
 } catch (error) {
@@ -50,7 +54,7 @@ try {
 }
 
 const authService = createAuthService({ config });
-const packService = createPackService({ config, orders });
+const packService = createPackService({ config, orders, records: packRecords });
 const importService = createImportService({ orders, syncOrders, demoMode: mode !== "production" });
 const labelService = createLabelService({ config });
 const port = Number(process.env.PORT || 4173);
@@ -277,6 +281,7 @@ async function handleApi(req, res, url) {
     if (!auth.ok) return sendResult(res, auth);
     const body = await readJson(req);
     const result = packService.closePackSession(body);
+    if (result.ok) await persistPackRecords();
     if (result.ok) authService.recordActivity(token, {
       action: result.data.record.status === "pass" ? "pack_close_pass" : "pack_force_close",
       moduleId: "pack",
@@ -632,6 +637,19 @@ async function persistOrders() {
   await writeJsonFile(ordersPath, orders);
 }
 
+async function persistPackRecords() {
+  await writeJsonFile(packRecordsPath, packService.listRecords());
+}
+
+async function loadJsonFile(filePath, fallback) {
+  try {
+    return JSON.parse(await fs.readFile(filePath, "utf8"));
+  } catch (error) {
+    if (error?.code === "ENOENT") return fallback;
+    throw error;
+  }
+}
+
 async function writeJsonFile(filePath, data) {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   const tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
@@ -963,6 +981,7 @@ async function saveUploadedVideo(req, url) {
   };
   const attached = packService.attachVideoToRecord({ recordId, video });
   if (!attached.ok) return attached;
+  await persistPackRecords();
   return { ok: true, data: video, message: "อัปโหลดไฟล์วิดีโอสำเร็จ" };
 }
 
