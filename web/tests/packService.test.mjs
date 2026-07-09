@@ -299,6 +299,79 @@ test("video metadata can be attached to a completed record", () => {
   assert.equal(service.listRecords()[0].shareLink, "http://localhost:4173/api/video/stream/id-4");
 });
 
+
+test("pack service uses initial records and skips seed history", () => {
+  const existingRecord = {
+    id: "rec-loaded",
+    awb: "SPX-LOADED",
+    platform: "Shopee",
+    employeeId: "EMP-LOADED",
+    stationId: "STATION-07",
+    startedAt: "2026-06-22T08:00:00.000Z",
+    endedAt: "2026-06-22T08:01:00.000Z",
+    durationSeconds: 60,
+    status: "pass",
+    itemSummary: "1/1 รายการ",
+    sizeMb: 5.5,
+    storage: {
+      targetId: "local-machine",
+      label: "เก็บที่เครื่องนี้",
+      provider: "local",
+      host: "localhost"
+    },
+    shareLink: null,
+    forceCloseReason: null
+  };
+
+  const config = structuredClone(baseConfig);
+  config.reports = { seedHistoricalRecords: true, seedHistoricalCount: 3 };
+
+  const service = createPackService({
+    config,
+    orders: structuredClone(orders),
+    records: [existingRecord],
+    idFactory: () => "id-unused",
+    now: () => new Date(Date.UTC(2026, 5, 22, 8, 0, 0))
+  });
+
+  const records = service.listRecords();
+
+  assert.equal(records.length, 1);
+  assert.equal(records[0].id, "rec-loaded");
+  assert.equal(records.some((record) => String(record.id).startsWith("seed_")), false);
+});
+
+test("pack service with null records falls back to seed history when configured", () => {
+  const config = structuredClone(baseConfig);
+  config.reports = { seedHistoricalRecords: true, seedHistoricalCount: 3 };
+
+  const service = createPackService({
+    config,
+    orders: structuredClone(orders),
+    records: null,
+    now: () => new Date(Date.UTC(2026, 5, 22, 8, 0, 0))
+  });
+
+  const records = service.listRecords();
+
+  assert.equal(records.length, 3);
+  assert.equal(records[0].id, "seed_0");
+});
+
+test("pack service with null records and seed disabled starts empty", () => {
+  const config = structuredClone(baseConfig);
+  config.reports = { seedHistoricalRecords: false };
+
+  const service = createPackService({
+    config,
+    orders: structuredClone(orders),
+    records: null
+  });
+
+  assert.deepEqual(service.listRecords(), []);
+});
+
+
 function createService() {
   let id = 0;
   let tick = 0;
