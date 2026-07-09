@@ -29,6 +29,7 @@ const jsonBodyLimitBytes = Number(process.env.SMARTRECORD_JSON_BODY_LIMIT_BYTES 
 const shutdownTimeoutMs = Number(process.env.SMARTRECORD_SHUTDOWN_TIMEOUT_MS || 10000);
 
 const configPath = resolveRuntimePath(process.env.SMARTRECORD_CONFIG_PATH, path.join(rootDir, "config", "app-config.example.json"));
+const usersPath = resolveRuntimePath(process.env.SMARTRECORD_USERS_PATH, path.join(rootDir, "data", "users.json"));
 const ordersPath = resolveRuntimePath(process.env.SMARTRECORD_ORDERS_PATH, path.join(rootDir, "data", "mock-orders.json"));
 const syncOrdersPath = resolveRuntimePath(process.env.SMARTRECORD_SYNC_ORDERS_PATH, path.join(rootDir, "data", "mock-sync-orders.json"));
 const packRecordsPath = resolveRuntimePath(process.env.SMARTRECORD_PACK_RECORDS_PATH, path.join(rootDir, "data", "pack-records.json"));
@@ -36,6 +37,7 @@ const labelsPath = resolveRuntimePath(process.env.SMARTRECORD_LABELS_PATH, path.
 const appSettingsPath = resolveRuntimePath(process.env.SMARTRECORD_APP_SETTINGS_PATH, path.join(rootDir, "data", "app-settings.json"));
 
 let config;
+let users;
 let orders;
 let syncOrders;
 let packRecords;
@@ -44,6 +46,8 @@ let appSettings;
 
 try {
   config = JSON.parse(await fs.readFile(configPath, "utf8"));
+  users = await loadJsonFile(usersPath, null);
+  if (users !== null && !Array.isArray(users)) throw new Error("users must be an array");
   orders = JSON.parse(await fs.readFile(ordersPath, "utf8"));
   syncOrders = JSON.parse(await fs.readFile(syncOrdersPath, "utf8"));
   packRecords = await loadJsonFile(packRecordsPath, null);
@@ -57,7 +61,7 @@ try {
   process.exit(1);
 }
 
-const authService = createAuthService({ config });
+const authService = createAuthService({ config, initialUsers: users });
 const packService = createPackService({ config, orders, records: packRecords });
 const importService = createImportService({ orders, syncOrders, demoMode: mode !== "production" });
 const labelService = createLabelService({ config, initialLabels: labels });
@@ -178,22 +182,30 @@ async function handleApi(req, res, url) {
   }
 
   if (req.method === "POST" && url.pathname === "/api/users") {
-    sendResult(res, authService.createUser(readBearerToken(req), await readJson(req)));
+    const result = authService.createUser(readBearerToken(req), await readJson(req));
+    if (result.ok) await persistUsers();
+    sendResult(res, result);
     return;
   }
 
   if (req.method === "POST" && url.pathname === "/api/users/update") {
-    sendResult(res, authService.updateUser(readBearerToken(req), await readJson(req)));
+    const result = authService.updateUser(readBearerToken(req), await readJson(req));
+    if (result.ok) await persistUsers();
+    sendResult(res, result);
     return;
   }
 
   if (req.method === "POST" && url.pathname === "/api/users/permissions") {
-    sendResult(res, authService.updateUserPermission(readBearerToken(req), await readJson(req)));
+    const result = authService.updateUserPermission(readBearerToken(req), await readJson(req));
+    if (result.ok) await persistUsers();
+    sendResult(res, result);
     return;
   }
 
   if (req.method === "POST" && url.pathname === "/api/users/delete") {
-    sendResult(res, authService.deleteUser(readBearerToken(req), await readJson(req)));
+    const result = authService.deleteUser(readBearerToken(req), await readJson(req));
+    if (result.ok) await persistUsers();
+    sendResult(res, result);
     return;
   }
 
@@ -638,6 +650,10 @@ async function loadAppSettings() {
 async function writeAppSettings(settings) {
   await fs.mkdir(path.dirname(appSettingsPath), { recursive: true });
   await fs.writeFile(appSettingsPath, `${JSON.stringify(settings, null, 2)}\n`);
+}
+
+async function persistUsers() {
+  await writeJsonFile(usersPath, authService.listAllUsers());
 }
 
 async function persistOrders() {

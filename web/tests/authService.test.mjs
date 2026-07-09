@@ -268,6 +268,36 @@ test("delete user guard blocks self delete, owner delete, and non admin roles", 
   assert.equal(nonAdminDelete.code, "FORBIDDEN");
 });
 
+
+test("auth service restores users from initialUsers for runtime persistence", () => {
+  const service = createService();
+  const admin = service.login({ email: "admin@example.local", password: "TestAdmin@Local" });
+
+  const created = service.createUser(admin.data.token, {
+    email: "runtime-user@example.local",
+    name: "Runtime User",
+    roleId: "packer",
+    password: "ExampleStrongPass123!"
+  });
+  assert.equal(created.ok, true);
+
+  const snapshot = service.listAllUsers();
+  assert.equal(snapshot.some((user) => user.email === "runtime-user@example.local" && user.passwordHash), true);
+
+  const restored = createAuthService({
+    config: structuredClone(config),
+    initialUsers: snapshot,
+    now: () => new Date(Date.UTC(2026, 5, 22, 8, 0, 0))
+  });
+
+  const login = restored.login({
+    email: "runtime-user@example.local",
+    password: "ExampleStrongPass123!"
+  });
+  assert.equal(login.ok, true);
+  assert.equal(login.data.user.email, "runtime-user@example.local");
+});
+
 function createService() {
   let id = 0;
   return createAuthService({

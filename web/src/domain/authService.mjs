@@ -1,9 +1,10 @@
 import crypto from "node:crypto";
 
-export function createAuthService({ config, now = () => new Date(), idFactory } = {}) {
+export function createAuthService({ config, now = () => new Date(), idFactory, initialUsers = null } = {}) {
   if (!config?.auth) throw new Error("auth config is required");
 
-  const users = new Map((config.auth.users || []).map((user) => [normalizeEmail(user.email), { ...user }]));
+  const seedUsers = Array.isArray(initialUsers) ? initialUsers : (config.auth.users || []);
+  const users = new Map(seedUsers.map((user) => [normalizeEmail(user.email), { ...user }]));
   const auditLogs = [];
   const activityLogs = [];
   const sessions = new Map();
@@ -247,6 +248,10 @@ export function createAuthService({ config, now = () => new Date(), idFactory } 
     return ok(log);
   }
 
+  function listAllUsers() {
+    return [...users.values()].map((user) => ({ ...user }));
+  }
+
   return {
     login,
     logout,
@@ -258,7 +263,8 @@ export function createAuthService({ config, now = () => new Date(), idFactory } 
     updateUser,
     updateUserPermission,
     deleteUser,
-    recordActivity
+    recordActivity,
+    listAllUsers
   };
 }
 
