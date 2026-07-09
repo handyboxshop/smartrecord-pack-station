@@ -32,12 +32,14 @@ const configPath = resolveRuntimePath(process.env.SMARTRECORD_CONFIG_PATH, path.
 const ordersPath = resolveRuntimePath(process.env.SMARTRECORD_ORDERS_PATH, path.join(rootDir, "data", "mock-orders.json"));
 const syncOrdersPath = resolveRuntimePath(process.env.SMARTRECORD_SYNC_ORDERS_PATH, path.join(rootDir, "data", "mock-sync-orders.json"));
 const packRecordsPath = resolveRuntimePath(process.env.SMARTRECORD_PACK_RECORDS_PATH, path.join(rootDir, "data", "pack-records.json"));
+const labelsPath = resolveRuntimePath(process.env.SMARTRECORD_LABELS_PATH, path.join(rootDir, "data", "labels.json"));
 const appSettingsPath = resolveRuntimePath(process.env.SMARTRECORD_APP_SETTINGS_PATH, path.join(rootDir, "data", "app-settings.json"));
 
 let config;
 let orders;
 let syncOrders;
 let packRecords;
+let labels;
 let appSettings;
 
 try {
@@ -46,6 +48,8 @@ try {
   syncOrders = JSON.parse(await fs.readFile(syncOrdersPath, "utf8"));
   packRecords = await loadJsonFile(packRecordsPath, null);
   if (packRecords !== null && !Array.isArray(packRecords)) throw new Error("pack records must be an array");
+  labels = await loadJsonFile(labelsPath, []);
+  if (!Array.isArray(labels)) throw new Error("labels must be an array");
   appSettings = await loadAppSettings();
   await ensureRuntimeFolders();
 } catch (error) {
@@ -56,7 +60,7 @@ try {
 const authService = createAuthService({ config });
 const packService = createPackService({ config, orders, records: packRecords });
 const importService = createImportService({ orders, syncOrders, demoMode: mode !== "production" });
-const labelService = createLabelService({ config });
+const labelService = createLabelService({ config, initialLabels: labels });
 const port = Number(process.env.PORT || 4173);
 
 const server = http.createServer(async (req, res) => {
@@ -442,6 +446,7 @@ async function handleApi(req, res, url) {
       result.data.updatedLabels = labelSync.data.updatedCount;
     }
     if (result.ok) await persistOrders();
+    if (result.ok && labelSync?.ok && labelSync.data.updatedCount > 0) await persistLabels();
     if (result.ok) authService.recordActivity(token, {
       action: "orders_manual_update",
       moduleId: "connect",
@@ -463,6 +468,7 @@ async function handleApi(req, res, url) {
       result.data.deletedLabels = labelCleanup.data.deletedCount;
     }
     if (result.ok) await persistOrders();
+    if (result.ok && labelCleanup?.ok && labelCleanup.data.deletedCount > 0) await persistLabels();
     if (result.ok) authService.recordActivity(token, {
       action: "orders_manual_delete",
       moduleId: "connect",
@@ -494,6 +500,7 @@ async function handleApi(req, res, url) {
     const auth = requireAnyPermission(token, ["labels:manage", "integrations:manage"]);
     if (!auth.ok) return sendResult(res, auth);
     const result = labelService.saveLabel(await readJson(req));
+    if (result.ok) await persistLabels();
     if (result.ok) authService.recordActivity(token, {
       action: "label_save",
       moduleId: "labels",
@@ -641,6 +648,10 @@ async function persistPackRecords() {
   await writeJsonFile(packRecordsPath, packService.listRecords());
 }
 
+async function persistLabels() {
+  await writeJsonFile(labelsPath, labelService.listAllLabels());
+}
+
 async function loadJsonFile(filePath, fallback) {
   try {
     return JSON.parse(await fs.readFile(filePath, "utf8"));
@@ -718,6 +729,7 @@ async function importShippingLabel(req, url) {
   const manualCorrections = [];
   const errors = [];
   const warnings = [...(pageFilesResult.data.warnings || [])];
+  let labelsChanged = false;
   const genericOcrConfig = resolveOcrConfig(config.ocr || {});
   for (const pageFile of pageFilesResult.data.pages) {
     const ocrResult = await runTesseractOcr({ filePath: pageFile.filePath, config: genericOcrConfig });
@@ -774,20 +786,22 @@ async function importShippingLabel(req, url) {
             code: orderResult.code,
             message: orderResult.message
           });
-          labelService.registerImportedLabel({
+          const skippedLabelResult = labelService.registerImportedLabel({
             parsed: skippedRow.parsed,
             labelFile: pageLabelFile,
             status: resolveSkippedLabelStatus(orderResult.code)
           });
+          if (skippedLabelResult.ok) labelsChanged = true;
         }
         continue;
       }
-      labelService.registerImportedLabel({
+      const importedLabelResult = labelService.registerImportedLabel({
         parsed: withoutRawText(parsed),
         labelFile: pageLabelFile,
         order: orderResult.data,
         status: "imported"
       });
+      if (importedLabelResult.ok) labelsChanged = true;
       imported.push({
         page: pageFile.page,
         labelIndex: labelIndex + 1,
@@ -837,6 +851,8 @@ async function importShippingLabel(req, url) {
       }
     };
   }
+
+  if (labelsChanged) await persistLabels();
 
   return {
     ok: true,

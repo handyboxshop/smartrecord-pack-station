@@ -2,10 +2,10 @@ import crypto from "node:crypto";
 
 const DATA_URL_PATTERN = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/;
 
-export function createLabelService({ config, idFactory } = {}) {
+export function createLabelService({ config, idFactory, initialLabels = [] } = {}) {
   if (!config?.labelPrint) throw new Error("labelPrint config is required");
 
-  const labels = [];
+  const labels = Array.isArray(initialLabels) ? [...initialLabels] : [];
   const nextId = idFactory ?? (() => crypto.randomUUID());
   const enabledPlatforms = config.labelPrint.enabledPlatforms || [];
   const acceptedImageTypes = config.labelPrint.acceptedImageTypes || [];
@@ -132,7 +132,11 @@ export function createLabelService({ config, idFactory } = {}) {
     return ok({ awb: cleanAwb, updatedCount: touched.length, labelIds: touched });
   }
 
-  return { saveLabel, registerImportedLabel, listLabels, getLabel, deleteLabelsForAwb, updateLabelsForAwb };
+  function listAllLabels() {
+    return [...labels];
+  }
+
+  return { saveLabel, registerImportedLabel, listLabels, listAllLabels, getLabel, deleteLabelsForAwb, updateLabelsForAwb };
 }
 
 function ok(data, message = "") {
