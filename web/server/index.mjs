@@ -126,13 +126,21 @@ function gracefulShutdown(signal) {
   }, shutdownTimeoutMs);
   timer.unref?.();
 
-  server.close((error) => {
+  server.close(async (error) => {
     if (error) {
       console.error(`[shutdown] close failed: ${error.message}`);
       process.exit(1);
     }
-    console.log("[shutdown] closed cleanly");
-    process.exit(0);
+
+    try {
+      await flushRuntimeState();
+      clearTimeout(timer);
+      console.log("[shutdown] closed cleanly");
+      process.exit(0);
+    } catch (flushError) {
+      console.error(`[shutdown] final flush failed: ${flushError.message}`);
+      process.exit(1);
+    }
   });
 }
 
@@ -649,6 +657,16 @@ async function loadAppSettings() {
 
 async function writeAppSettings(settings) {
   await writeJsonFile(appSettingsPath, settings);
+}
+
+async function flushRuntimeState() {
+  await Promise.all([
+    persistUsers(),
+    persistOrders(),
+    persistPackRecords(),
+    persistLabels(),
+    writeAppSettings(appSettings)
+  ]);
 }
 
 async function persistUsers() {
