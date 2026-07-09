@@ -314,3 +314,32 @@ test("updateLabelsForAwb syncs printable label metadata after Connect / Import e
   assert.equal(found.data.orderNumber, "1101259465611295");
   assert.equal(found.data.carrier, "LEX");
 });
+
+
+test("createLabelService restores labels from initialLabels for runtime persistence", () => {
+  const original = createLabelService({ config: sampleConfig, idFactory: () => "persist-id-1" });
+
+  const saved = original.saveLabel({
+    platform: "shopee",
+    date: "2026-07-09",
+    imageDataUrl: tinyPngDataUrl,
+    fileName: "persisted-label.png"
+  });
+
+  assert.equal(saved.ok, true);
+
+  const snapshot = original.listAllLabels();
+  assert.equal(snapshot.length, 1);
+  assert.equal(snapshot[0].id, saved.data.id);
+
+  const restored = createLabelService({ config: sampleConfig, initialLabels: snapshot });
+
+  const found = restored.getLabel(saved.data.id);
+  assert.equal(found.ok, true);
+  assert.equal(found.data.fileName, "persisted-label.png");
+
+  const listed = restored.listLabels();
+  assert.equal(listed.ok, true);
+  assert.equal(listed.data.labels.length, 1);
+  assert.equal(listed.data.labels[0].id, saved.data.id);
+});

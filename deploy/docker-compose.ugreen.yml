@@ -17,6 +17,7 @@ services:
       SMARTRECORD_ORDERS_PATH: /data/smartrecord/data/orders.json
       SMARTRECORD_SYNC_ORDERS_PATH: /data/smartrecord/data/sync-orders.json
       SMARTRECORD_PACK_RECORDS_PATH: /data/smartrecord/data/pack-records.json
+      SMARTRECORD_LABELS_PATH: /data/smartrecord/data/labels.json
       SMARTRECORD_APP_SETTINGS_PATH: /data/smartrecord/data/app-settings.json
       SMARTRECORD_RUNTIME_ROOT: /data/smartrecord
     ports:
