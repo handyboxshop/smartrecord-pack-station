@@ -14,6 +14,7 @@ services:
       TZ: Asia/Bangkok
       PORT: 4173
       SMARTRECORD_CONFIG_PATH: /data/smartrecord/config/app-config.json
+      SMARTRECORD_USERS_PATH: /data/smartrecord/data/users.json
       SMARTRECORD_ORDERS_PATH: /data/smartrecord/data/orders.json
       SMARTRECORD_SYNC_ORDERS_PATH: /data/smartrecord/data/sync-orders.json
       SMARTRECORD_PACK_RECORDS_PATH: /data/smartrecord/data/pack-records.json
