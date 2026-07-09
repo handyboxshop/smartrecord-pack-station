@@ -648,8 +648,7 @@ async function loadAppSettings() {
 }
 
 async function writeAppSettings(settings) {
-  await fs.mkdir(path.dirname(appSettingsPath), { recursive: true });
-  await fs.writeFile(appSettingsPath, `${JSON.stringify(settings, null, 2)}\n`);
+  await writeJsonFile(appSettingsPath, settings);
 }
 
 async function persistUsers() {
