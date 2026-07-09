@@ -29,3 +29,4 @@ services:
       retries: 3
     volumes:
       - ./smartrecord-data:/data/smartrecord
+      - ./smartrecord-data/local-nas:/app/local-nas
