@@ -27,11 +27,12 @@ const mode = process.env.NODE_ENV || "development";
 const host = process.env.HOST || (mode === "production" ? "0.0.0.0" : "127.0.0.1");
 const jsonBodyLimitBytes = Number(process.env.SMARTRECORD_JSON_BODY_LIMIT_BYTES || 2 * 1024 * 1024);
 const shutdownTimeoutMs = Number(process.env.SMARTRECORD_SHUTDOWN_TIMEOUT_MS || 10000);
+const port = Number(process.env.PORT || 4173);
 
 const configPath = resolveRuntimePath(process.env.SMARTRECORD_CONFIG_PATH, path.join(rootDir, "config", "app-config.example.json"));
 const usersPath = resolveRuntimePath(process.env.SMARTRECORD_USERS_PATH, path.join(rootDir, "data", "users.json"));
-const ordersPath = resolveRuntimePath(process.env.SMARTRECORD_ORDERS_PATH, path.join(rootDir, "data", "mock-orders.json"));
-const syncOrdersPath = resolveRuntimePath(process.env.SMARTRECORD_SYNC_ORDERS_PATH, path.join(rootDir, "data", "mock-sync-orders.json"));
+const ordersPath = resolveRuntimePath(process.env.SMARTRECORD_ORDERS_PATH, path.join(rootDir, "data", "orders.json"));
+const syncOrdersPath = resolveRuntimePath(process.env.SMARTRECORD_SYNC_ORDERS_PATH, path.join(rootDir, "data", "sync-orders.json"));
 const packRecordsPath = resolveRuntimePath(process.env.SMARTRECORD_PACK_RECORDS_PATH, path.join(rootDir, "data", "pack-records.json"));
 const labelsPath = resolveRuntimePath(process.env.SMARTRECORD_LABELS_PATH, path.join(rootDir, "data", "labels.json"));
 const appSettingsPath = resolveRuntimePath(process.env.SMARTRECORD_APP_SETTINGS_PATH, path.join(rootDir, "data", "app-settings.json"));
@@ -48,8 +49,10 @@ try {
   config = JSON.parse(await fs.readFile(configPath, "utf8"));
   users = await loadJsonFile(usersPath, null);
   if (users !== null && !Array.isArray(users)) throw new Error("users must be an array");
-  orders = JSON.parse(await fs.readFile(ordersPath, "utf8"));
-  syncOrders = JSON.parse(await fs.readFile(syncOrdersPath, "utf8"));
+  orders = await loadJsonFile(ordersPath, {});
+  if (!orders || Array.isArray(orders) || typeof orders !== "object") throw new Error("orders must be an object");
+  syncOrders = await loadJsonFile(syncOrdersPath, []);
+  if (!Array.isArray(syncOrders)) throw new Error("sync orders must be an array");
   packRecords = await loadJsonFile(packRecordsPath, null);
   if (packRecords !== null && !Array.isArray(packRecords)) throw new Error("pack records must be an array");
   labels = await loadJsonFile(labelsPath, []);
@@ -65,7 +68,6 @@ const authService = createAuthService({ config, initialUsers: users });
 const packService = createPackService({ config, orders, records: packRecords });
 const importService = createImportService({ orders, syncOrders, demoMode: mode !== "production" });
 const labelService = createLabelService({ config, initialLabels: labels });
-const port = Number(process.env.PORT || 4173);
 
 const server = http.createServer(async (req, res) => {
   try {
