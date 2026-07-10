@@ -8,9 +8,11 @@ export function normalizeOrderNumber(value) {
 
 export function buildImportResultSummary(data = {}) {
   const imported = Array.isArray(data.imported) ? data.imported : [];
-  const importedLabelCount = imported.length || Number(data.importedCount || (data.order ? 1 : 0));
+  const successfulRows = imported.length
+    ? imported
+    : (data.order ? [{ order: data.order, parsed: data.parsed }] : []);
+  const importedLabelCount = successfulRows.length;
   const skippedCount = Number(data.skippedCount || 0);
-  const successfulRows = imported.length ? imported : (data.order ? [{ order: data.order, parsed: data.parsed }] : []);
   const uniqueOrderNumbers = new Set(
     successfulRows
       .map((item) => normalizeOrderNumber(
@@ -20,12 +22,13 @@ export function buildImportResultSummary(data = {}) {
   );
 
   if (importedLabelCount > 0) {
+    const message = `นำเข้าใบปะหน้าสำเร็จ ${importedLabelCount} รายการ · ${uniqueOrderNumbers.size} คำสั่งซื้อ`;
     return {
       importedLabelCount,
       uniqueOrderCount: uniqueOrderNumbers.size,
       skippedCount,
       tone: "success",
-      message: `นำเข้าใบปะหน้าสำเร็จ ${importedLabelCount} รายการ · ${uniqueOrderNumbers.size} คำสั่งซื้อ`
+      message: skippedCount ? `${message} · ซ้ำ/ข้าม ${skippedCount} รายการ` : message
     };
   }
 
