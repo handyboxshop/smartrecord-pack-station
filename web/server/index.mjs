@@ -660,13 +660,30 @@ async function writeAppSettings(settings) {
 }
 
 async function flushRuntimeState() {
-  await Promise.all([
-    persistUsers(),
-    persistOrders(),
-    persistPackRecords(),
-    persistLabels(),
-    writeAppSettings(appSettings)
-  ]);
+  const flushTasks = [
+    ["users", persistUsers()],
+    ["orders", persistOrders()],
+    ["packRecords", persistPackRecords()],
+    ["labels", persistLabels()],
+    ["appSettings", writeAppSettings(appSettings)]
+  ];
+
+  const results = await Promise.allSettled(flushTasks.map(([, task]) => task));
+  const failures = results
+    .map((result, index) => {
+      if (result.status === "fulfilled") {
+        return null;
+      }
+
+      const [name] = flushTasks[index];
+      const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
+      return `${name}: ${reason}`;
+    })
+    .filter(Boolean);
+
+  if (failures.length > 0) {
+    throw new Error(`Failed to flush runtime state: ${failures.join("; ")}`);
+  }
 }
 
 async function persistUsers() {
