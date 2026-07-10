@@ -1,3 +1,5 @@
+import { buildImportResultSummary } from "./importResultSummary.js";
+
 const state = {
   config: null,
   authToken: localStorage.getItem("smartrecord.authToken") || "",
@@ -1214,13 +1216,10 @@ async function importLabelOrder(event) {
     const order = result.data.order;
     const manualCorrections = Array.isArray(result.data.manualCorrections) ? result.data.manualCorrections : [];
     const warnings = Array.isArray(result.data.warnings) ? result.data.warnings : [];
-    const importedCount = result.data.importedCount ?? (order ? 1 : 0);
     const skippedCount = result.data.skippedCount ?? 0;
-    const totalItems = result.data.totalLabels ?? result.data.totalPages ?? 1;
-    el.labelImportStatus.textContent = importedCount
-      ? `นำเข้าแล้ว ${importedCount}/${totalItems} รายการ · ซ้ำ/ข้าม ${skippedCount} รายการ`
-      : `ไม่มีออเดอร์ใหม่ · ซ้ำ/ข้าม ${skippedCount} รายการ`;
-    el.labelImportStatus.classList.add(skippedCount ? "warning" : "success");
+    const importSummary = buildImportResultSummary(result.data);
+    el.labelImportStatus.textContent = importSummary.message;
+    if (importSummary.tone) el.labelImportStatus.classList.add(importSummary.tone);
     renderLabelImportPreview(result.data);
     if (hasDuplicateImportRows(result.data)) {
       showWarningDialog("ห้ามสแกน/นำเข้าซ้ำ", duplicateImportWarning(result.data));
@@ -1280,13 +1279,9 @@ async function importLabelFromLabelsPage(event) {
     }
     const manualCorrections = Array.isArray(result.data.manualCorrections) ? result.data.manualCorrections : [];
     const warnings = Array.isArray(result.data.warnings) ? result.data.warnings : [];
-    const importedCount = result.data.importedCount ?? (result.data.order ? 1 : 0);
     const skippedCount = result.data.skippedCount ?? 0;
-    const totalItems = result.data.totalLabels ?? result.data.totalPages ?? 1;
-    const statusMessage = importedCount
-      ? `นำเข้าแล้ว ${importedCount}/${totalItems} รายการ · ซ้ำ/ข้าม ${skippedCount} รายการ`
-      : `ไม่มีออเดอร์ใหม่ · ซ้ำ/ข้าม ${skippedCount} รายการ`;
-    setImportStatus(el.labelLibraryStatus, statusMessage, skippedCount ? "warning" : "success");
+    const importSummary = buildImportResultSummary(result.data);
+    setImportStatus(el.labelLibraryStatus, importSummary.message, importSummary.tone);
     renderLabelImportPreviewInto(el.labelLibraryPreview, result.data);
     if (hasDuplicateImportRows(result.data)) {
       showWarningDialog("ห้ามสแกน/นำเข้าซ้ำ", duplicateImportWarning(result.data));

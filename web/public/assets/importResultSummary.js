@@ -1,0 +1,42 @@
+export function normalizeOrderNumber(value) {
+  return String(value || "")
+    .normalize("NFKC")
+    .trim()
+    .replace(/\s+/g, "")
+    .toUpperCase();
+}
+
+export function buildImportResultSummary(data = {}) {
+  const imported = Array.isArray(data.imported) ? data.imported : [];
+  const successfulRows = imported.length
+    ? imported
+    : (data.order ? [{ order: data.order, parsed: data.parsed }] : []);
+  const importedLabelCount = successfulRows.length;
+  const skippedCount = Number(data.skippedCount || 0);
+  const uniqueOrderNumbers = new Set(
+    successfulRows
+      .map((item) => normalizeOrderNumber(
+        item?.order?.orderNumber ?? item?.parsed?.orderNumber ?? item?.orderNumber
+      ))
+      .filter(Boolean)
+  );
+
+  if (importedLabelCount > 0) {
+    const message = `นำเข้าใบปะหน้าสำเร็จ ${importedLabelCount} รายการ · ${uniqueOrderNumbers.size} คำสั่งซื้อ`;
+    return {
+      importedLabelCount,
+      uniqueOrderCount: uniqueOrderNumbers.size,
+      skippedCount,
+      tone: "success",
+      message: skippedCount ? `${message} · ซ้ำ/ข้าม ${skippedCount} รายการ` : message
+    };
+  }
+
+  return {
+    importedLabelCount: 0,
+    uniqueOrderCount: 0,
+    skippedCount,
+    tone: skippedCount ? "warning" : "",
+    message: `ไม่มีออเดอร์ใหม่ · ซ้ำ/ข้าม ${skippedCount} รายการ`
+  };
+}
