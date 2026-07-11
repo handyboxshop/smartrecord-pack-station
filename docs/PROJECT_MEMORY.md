@@ -10,7 +10,7 @@
   - UI เริ่ม/เปิด Device Settings ใหม่ด้วย “ยังไม่ได้ตรวจสอบ”; แสดง green เฉพาะผล `ready` ที่ backend ยืนยันแล้ว และ network failure เป็น unavailable
   - `preprocessPdfForOcr` ใช้ timeout fallback 120000 ms เมื่อ config ไม่มีหรือ invalid; diagnostics แยก `OCR_TIMEOUT_DEFAULT` ออกจาก `OCR_TIMEOUT_INVALID`
   - fixtures สำหรับ diagnostic success/failure ทำงานเฉพาะ `NODE_ENV=test` แม้ production มี environment variable ชื่อ fixture อยู่ก็ต้องไม่ใช้
-- Verification: `npm run check` และ `npm test` ใน `web/` ผ่าน 133/133 รวม auth, sanitization, no-write และ UI static coverage
+- Verification: `npm run check` และ `npm test` ใน `web/` ผ่าน 135/135 รวม auth, sanitization, no-write และ UI static coverage
 
 ## 2026-07-11 — Device Settings: Browser Print is workstation-local
 

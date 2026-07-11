@@ -1429,7 +1429,7 @@ function resolveOcrDiagnostics() {
       probeRuntime: async () => ({ available: false })
     });
     if (fixture === "invalid-timeout") return inspectOcrDiagnostics({
-      ocrConfig: { ...config.ocr, preprocessPdf: { ...config.ocr?.preprocessPdf, timeoutMs: "invalid" } },
+      ocrConfig: { ...config.ocr, preprocessPdf: { ...config.ocr?.preprocessPdf, enabled: true, timeoutMs: "invalid" } },
       probeRuntime: async () => ({ available: true })
     });
     if (fixture === "unexpected") return inspectOcrDiagnostics({
@@ -1437,7 +1437,7 @@ function resolveOcrDiagnostics() {
       probeRuntime: async () => { throw new Error(`diagnostic secret at ${process.cwd()} node_modules`); }
     });
     return inspectOcrDiagnostics({
-      ocrConfig: config.ocr,
+      ocrConfig: { ...config.ocr, preprocessPdf: { ...config.ocr?.preprocessPdf, enabled: true } },
       probeRuntime: async () => ({ available: true })
     });
   };

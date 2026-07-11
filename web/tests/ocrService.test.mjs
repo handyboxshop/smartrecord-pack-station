@@ -7,6 +7,7 @@ import {
   buildTesseractArgs,
   convertPdfToPngPages,
   inspectOcrDiagnostics,
+  preprocessPdfForOcr,
   probeOcrRuntime,
   resolveOcrPreprocessTimeout,
   resolveOcrConfig
@@ -36,7 +37,7 @@ test("resolveOcrConfig merges per-platform values over generic defaults", () => 
 
 test("OCR diagnostics reports configured, unavailable, and invalid timeout states without exposing probe errors", async () => {
   const ready = await inspectOcrDiagnostics({
-    ocrConfig: { engine: "tesseract", command: "tesseract", preprocessPdf: { timeoutMs: 5000 } },
+    ocrConfig: { engine: "tesseract", command: "tesseract", preprocessPdf: { enabled: true, timeoutMs: 5000 } },
     probeRuntime: async () => ({ available: true })
   });
   assert.equal(ready.overallStatus, "ready");
@@ -51,7 +52,7 @@ test("OCR diagnostics reports configured, unavailable, and invalid timeout state
   assert.equal(unavailable.checks.ocr.code, "OCR_RUNTIME_UNAVAILABLE");
 
   const invalid = await inspectOcrDiagnostics({
-    ocrConfig: { engine: "tesseract", command: "tesseract", preprocessPdf: { timeoutMs: "bad" } },
+    ocrConfig: { engine: "tesseract", command: "tesseract", preprocessPdf: { enabled: true, timeoutMs: "bad" } },
     probeRuntime: async () => ({ available: true })
   });
   assert.equal(invalid.overallStatus, "degraded");
@@ -66,9 +67,55 @@ test("OCR diagnostics reports configured, unavailable, and invalid timeout state
   assert.doesNotMatch(JSON.stringify(sanitized), /secret|private|node_modules/i);
 });
 
+test("OCR diagnostics keep timeout neutral when OCR is not configured or preprocessing is disabled", async () => {
+  const notConfigured = await inspectOcrDiagnostics({ ocrConfig: null });
+  assert.equal(notConfigured.checks.ocrTimeout.status, "not-configured");
+  assert.equal(notConfigured.checks.ocrTimeout.code, "OCR_TIMEOUT_NOT_CONFIGURED");
+
+  const preprocessingDisabled = await inspectOcrDiagnostics({
+    ocrConfig: { engine: "tesseract", command: "tesseract", preprocessPdf: { enabled: false, timeoutMs: 5000 } },
+    probeRuntime: async () => ({ available: true })
+  });
+  assert.equal(preprocessingDisabled.checks.ocr.status, "ready");
+  assert.equal(preprocessingDisabled.checks.ocrTimeout.status, "not-configured");
+  assert.equal(preprocessingDisabled.checks.ocrTimeout.code, "OCR_PREPROCESSING_DISABLED");
+  assert.doesNotMatch(JSON.stringify(preprocessingDisabled), /tesseract|command/i);
+});
+
 test("OCR preprocess timeout keeps a positive default when configuration is missing or invalid", () => {
   assert.deepEqual(resolveOcrPreprocessTimeout({}), { timeoutMs: 120000, source: "default", valid: true });
   assert.deepEqual(resolveOcrPreprocessTimeout({ preprocessPdf: { timeoutMs: 0 } }), { timeoutMs: 120000, source: "fallback", valid: false });
+});
+
+test("preprocessPdfForOcr keeps timeout protection for missing and invalid configuration", async () => {
+  for (const [timeoutMs, expectedTimeout] of [
+    [undefined, 120000],
+    [0, 120000],
+    [-1, 120000],
+    ["invalid", 120000],
+    [4500, 4500]
+  ]) {
+    const child = fakePreprocessChild();
+    const scheduledTimeouts = [];
+    const config = { preprocessPdf: { enabled: true } };
+    if (timeoutMs !== undefined) config.preprocessPdf.timeoutMs = timeoutMs;
+    const resultPromise = preprocessPdfForOcr({
+      filePath: "fixture.pdf",
+      outputPath: "fixture-output.pdf",
+      config,
+      spawnProcess: () => child,
+      setTimeoutFn: (callback, delay) => {
+        scheduledTimeouts.push(delay);
+        return { callback, unref() {} };
+      },
+      clearTimeoutFn: () => {}
+    });
+    child.emit("close", 0);
+    const result = await resultPromise;
+    assert.equal(result.ok, true);
+    assert.equal(result.data.usedPreprocessing, true);
+    assert.equal(scheduledTimeouts[0], expectedTimeout);
+  }
 });
 
 test("OCR runtime diagnostic probe is bounded and never returns command or error details", async () => {
@@ -91,12 +138,14 @@ test("OCR runtime diagnostic probe is bounded and never returns command or error
   assert.deepEqual(await unavailable, { available: false });
 
   const timeoutChild = fakeChild();
-  const timeout = await probeOcrRuntime({
+  const timeoutPromise = probeOcrRuntime({
     command: "/private/ocr-secret-command",
     timeoutMs: 10,
     spawnProcess: () => timeoutChild,
     logError: () => {}
   });
+  await delay(20);
+  const timeout = await timeoutPromise;
   assert.deepEqual(timeout, { available: false });
   assert.deepEqual(timeoutChild.kills, ["SIGTERM"]);
   timeoutChild.emit("close", 0);
@@ -116,6 +165,16 @@ function fakeChild() {
   child.kills = [];
   child.kill = (signal) => child.kills.push(signal);
   return child;
+}
+
+function fakePreprocessChild() {
+  const child = fakeChild();
+  child.stderr = new EventEmitter();
+  return child;
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 test("buildTesseractArgs includes language, engine, psm and optional flags", () => {
