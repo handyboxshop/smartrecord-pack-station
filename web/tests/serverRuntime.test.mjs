@@ -74,6 +74,21 @@ test("NAS/CUPS printer route requires settings:manage", async (t) => {
   });
   assert.equal(forbidden.status, 403);
   assert.equal(forbidden.body.code, "FORBIDDEN");
+
+  const admin = await login(port, "admin@test.local", "admin-password");
+  const authorized = await requestJson(port, "/api/devices/printers", {
+    headers: { Authorization: `Bearer ${admin.token}` }
+  });
+  assert.equal(authorized.status, 200);
+  assert.equal(authorized.body.ok, true);
+  assert.deepEqual(authorized.body.data, {
+    printers: [{
+      id: "system:test-cups-printer",
+      label: "Test CUPS Printer",
+      systemName: "test-cups-printer",
+      source: "system"
+    }]
+  });
 });
 
 test("starting a second server on the same port fails clearly", async (t) => {
@@ -219,7 +234,9 @@ async function createPrinterTestRuntime() {
       SMARTRECORD_SYNC_ORDERS_PATH: path.join(dir, "sync-orders.json"),
       SMARTRECORD_PACK_RECORDS_PATH: path.join(dir, "pack-records.json"),
       SMARTRECORD_LABELS_PATH: path.join(dir, "labels.json"),
-      SMARTRECORD_APP_SETTINGS_PATH: path.join(dir, "app-settings.json")
+      SMARTRECORD_APP_SETTINGS_PATH: path.join(dir, "app-settings.json"),
+      NODE_ENV: "test",
+      SMARTRECORD_TEST_PRINTER_DISCOVERY: "success"
     }
   };
 }

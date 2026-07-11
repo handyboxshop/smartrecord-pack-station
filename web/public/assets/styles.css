@@ -579,6 +579,10 @@ h1 { font-size: clamp(34px, 7vw, 64px); margin-bottom: 12px; line-height: 0.95; 
   color: var(--stop);
   background: #fff1f0;
 }
+.deviceChip.neutral {
+  color: var(--muted);
+  background: var(--surface-soft);
+}
 .deviceDot {
   width: 9px;
   height: 9px;

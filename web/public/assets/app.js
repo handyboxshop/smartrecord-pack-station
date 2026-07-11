@@ -2478,11 +2478,11 @@ function updateDeviceSummary() {
   const storageProfile = storageTargetProfile(storage, deviceSettings.customStoragePath || "");
   const storageConnected = Boolean(storage) && storageValidation.ok && !storageProfile.mountedRequired;
   const chips = [
-    statusChip({ label: `พนักงาน: ${employeeLabel}`, connected: Boolean(employeeName) }),
-    statusChip({ label: "กล้อง", connected: cameraConnected }),
-    statusChip({ label: "เครื่องพิมพ์ฉลาก: เลือกผ่าน Browser", connected: false }),
-    statusChip({ label: "ที่จัดเก็บวิดีโอ", connected: storageConnected }),
-    statusChip({ label: "Barcode Scanner", connected: scannerConnected })
+    statusChip({ label: `พนักงาน: ${employeeLabel}`, state: Boolean(employeeName) ? "connected" : "disconnected" }),
+    statusChip({ label: "กล้อง", state: cameraConnected ? "connected" : "disconnected" }),
+    statusChip({ label: "เครื่องพิมพ์ฉลาก: เลือกผ่าน Browser", state: "neutral" }),
+    statusChip({ label: "ที่จัดเก็บวิดีโอ", state: storageConnected ? "connected" : "disconnected" }),
+    statusChip({ label: "Barcode Scanner", state: scannerConnected ? "connected" : "disconnected" })
   ];
   el.deviceSummary.innerHTML = chips.join("");
 }
@@ -2507,9 +2507,9 @@ async function discoverNasCupsPrinters() {
     : "ไม่พบเครื่องพิมพ์ที่ตั้งค่าไว้บน NAS / CUPS";
 }
 
-function statusChip({ label, connected }) {
+function statusChip({ label, state = "neutral" }) {
   return `
-    <span class="deviceChip ${connected ? "connected" : "disconnected"}">
+    <span class="deviceChip ${escapeHtml(state)}">
       <span class="deviceDot"></span>${escapeHtml(label)}
     </span>
   `;

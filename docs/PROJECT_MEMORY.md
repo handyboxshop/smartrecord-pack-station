@@ -9,6 +9,7 @@
   - เก็บเฉพาะ paper-size preference ใน `localStorage` ของ workstation/browser (`smartrecord.browserPrintPreferences`); ไม่ย้าย camera/scanner deviceId ไป server
   - แยก NAS / CUPS discovery เป็นตัวเลือกเสริม ชื่อชัดเจน และเมื่อไม่มี `lpstat` ให้ตอบ `NAS_CUPS_UNSUPPORTED` โดยไม่เผย executable หรือ filesystem path
   - ลบชื่อ driver/local printer แบบคาดเดาและไม่แสดงสถานะ online ที่ไม่ได้ตรวจจริง
+  - Device Summary แสดง Browser Print เป็น neutral state เพื่อไม่สื่อว่า hardware ล้มเหลวหรือเชื่อมต่อสำเร็จ
   - รักษา `settings:manage` ที่ route NAS/CUPS และ sanitize unhandled API error ก่อนตอบ browser
 - Verification:
   - `npm test --prefix web` ผ่าน 124/124 (ต้องรันนอก sandbox เพื่อเปิด localhost สำหรับ server runtime tests)

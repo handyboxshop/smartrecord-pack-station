@@ -68,6 +68,7 @@ const authService = createAuthService({ config, initialUsers: users });
 const packService = createPackService({ config, orders, records: packRecords });
 const importService = createImportService({ orders, syncOrders, demoMode: mode !== "production" });
 const labelService = createLabelService({ config, initialLabels: labels });
+const printerDiscovery = resolvePrinterDiscovery();
 
 const server = http.createServer(async (req, res) => {
   try {
@@ -224,7 +225,7 @@ async function handleApi(req, res, url) {
     const token = readBearerToken(req);
     const auth = authService.requirePermission(token, "settings:manage");
     if (!auth.ok) return sendResult(res, auth);
-    sendResult(res, await discoverNasCupsPrinters());
+    sendResult(res, await printerDiscovery());
     return;
   }
 
@@ -1341,6 +1342,24 @@ function readBearerToken(req) {
   const header = req.headers.authorization || "";
   const match = /^Bearer\s+(.+)$/i.exec(header);
   return match?.[1] || "";
+}
+
+function resolvePrinterDiscovery() {
+  if (mode === "test" && process.env.SMARTRECORD_TEST_PRINTER_DISCOVERY === "success") {
+    return async () => ({
+      ok: true,
+      data: {
+        printers: [{
+          id: "system:test-cups-printer",
+          label: "Test CUPS Printer",
+          systemName: "test-cups-printer",
+          source: "system"
+        }]
+      },
+      message: "พบเครื่องพิมพ์ NAS / CUPS 1 เครื่อง"
+    });
+  }
+  return discoverNasCupsPrinters;
 }
 
 function sendResult(res, result) {
