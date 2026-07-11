@@ -1,4 +1,5 @@
 import { buildImportResultSummary } from "./importResultSummary.js";
+import { loadBrowserPrintPreferences, saveBrowserPrintPreferences } from "./browserPrintPreferences.js";
 
 const state = {
   config: null,
@@ -16,7 +17,6 @@ const state = {
   labels: [],
   labelSummary: { total: 0, filtered: 0 },
   labelSearchQuery: "",
-  detectedPrinters: readStoredDetectedPrinters(),
   selectedOrderIds: new Set(),
   activeLabelPreviewId: "",
   pendingLabelAutoPrint: false
@@ -85,9 +85,11 @@ const el = {
   cameraStatus: document.querySelector("#cameraStatus"),
   cameraPreviewWrap: document.querySelector("#cameraPreviewWrap"),
   settingsCameraPreview: document.querySelector("#settingsCameraPreview"),
-  printerDriverSelect: document.querySelector("#printerDriverSelect"),
-  printerStatus: document.querySelector("#printerStatus"),
-  searchPrinterBtn: document.querySelector("#searchPrinterBtn"),
+  browserPrintPaperSize: document.querySelector("#browserPrintPaperSize"),
+  browserPrintStatus: document.querySelector("#browserPrintStatus"),
+  testBrowserPrintBtn: document.querySelector("#testBrowserPrintBtn"),
+  searchNasPrinterBtn: document.querySelector("#searchNasPrinterBtn"),
+  nasPrinterStatus: document.querySelector("#nasPrinterStatus"),
   scannerModeSelect: document.querySelector("#scannerModeSelect"),
   scannerTestInput: document.querySelector("#scannerTestInput"),
   scannerStatus: document.querySelector("#scannerStatus"),
@@ -239,6 +241,7 @@ let recordingDiagnostics = resetRecordingDiagnostics();
 let recTimerId = null;
 let recSeconds = 0;
 let deviceSettings = null;
+let browserPrintPreferences = loadBrowserPrintPreferences();
 let settingsCameraStream = null;
 let labelImageDataUrl = "";
 const deviceConnection = {
@@ -430,12 +433,9 @@ function bindEvents() {
     deviceSettings.cameraDeviceId = el.cameraSelect.value;
     updateDeviceSummary();
   });
-  el.printerDriverSelect.addEventListener("change", () => {
-    deviceSettings.printerDriverId = el.printerDriverSelect.value;
-    updatePrinterStatus();
-    updateDeviceSummary();
-  });
-  el.searchPrinterBtn?.addEventListener("click", discoverPrinters);
+  el.browserPrintPaperSize?.addEventListener("change", saveBrowserPrintPreference);
+  el.testBrowserPrintBtn?.addEventListener("click", testBrowserPrint);
+  el.searchNasPrinterBtn?.addEventListener("click", discoverNasCupsPrinters);
   el.prePackImageInput?.addEventListener("change", previewSelectedPrePackImage);
   el.uploadPrePackImageBtn?.addEventListener("click", uploadPrePackImage);
   el.scannerModeSelect.addEventListener("change", () => {
@@ -1014,7 +1014,7 @@ function printActiveLabel() {
         <title>Print ${title}</title>
         <style>
           @page {
-            size: auto;
+            size: ${browserPrintPageSize(browserPrintPreferences.paperSize)};
             margin: 0;
           }
           html, body {
@@ -1061,6 +1061,43 @@ function printActiveLabel() {
     </html>
   `);
   printWindow.document.close();
+}
+
+function testBrowserPrint() {
+  saveBrowserPrintPreference();
+  const printWindow = window.open("", "_blank", "width=700,height=900");
+  if (!printWindow) {
+    toast("เบราว์เซอร์บล็อกหน้าต่าง Print กรุณาอนุญาต pop-up");
+    return;
+  }
+  const paperSize = browserPrintPreferences.paperSize === "a4" ? "A4" : "100x150 mm";
+  printWindow.document.write(`
+    <html>
+      <head>
+        <title>SmartRecord Browser Print Test</title>
+        <style>
+          @page { size: ${browserPrintPageSize(browserPrintPreferences.paperSize)}; margin: 10mm; }
+          body { font-family: sans-serif; color: #111827; }
+          .test { border: 2px dashed #2563eb; padding: 16mm; text-align: center; }
+          h1 { margin-top: 0; font-size: 22px; }
+        </style>
+      </head>
+      <body>
+        <div class="test">
+          <h1>SmartRecord Browser Print Test</h1>
+          <p>ขนาดกระดาษ: ${paperSize}</p>
+          <p>เลือกเครื่องพิมพ์ที่ต่อกับ Pack Station ในหน้าต่างพิมพ์ของระบบปฏิบัติการ</p>
+        </div>
+        <script>window.onload = () => window.print(); window.onafterprint = () => window.close();</script>
+      </body>
+    </html>
+  `);
+  printWindow.document.close();
+  el.browserPrintStatus.textContent = "เปิดหน้าต่างพิมพ์แล้ว: เลือกเครื่องพิมพ์ใน dialog ของระบบปฏิบัติการ";
+}
+
+function browserPrintPageSize(paperSize) {
+  return paperSize === "100x150" ? "100mm 150mm" : "A4";
 }
 
 async function createManualOrder(event) {
@@ -2203,7 +2240,6 @@ function loadDeviceSettings() {
     storageTargetId: saved.storageTargetId || defaultStorageTargetId,
     customStoragePath: saved.customStoragePath || "",
     cameraDeviceId: saved.cameraDeviceId || state.config.devices.camera.defaultDeviceId,
-    printerDriverId: saved.printerDriverId || state.config.devices.labelPrinter.defaultDriverId,
     scannerMode: saved.scannerMode || state.config.devices.barcodeScanner.defaultMode
   };
 }
@@ -2219,9 +2255,7 @@ function renderSettingsControls() {
   el.cameraSelect.value = deviceSettings.cameraDeviceId;
   refreshCameraDevices();
 
-  renderPrinterOptions();
-  el.printerDriverSelect.value = deviceSettings.printerDriverId;
-  updatePrinterStatus();
+  el.browserPrintPaperSize.value = browserPrintPreferences.paperSize;
 
   el.scannerModeSelect.innerHTML = state.config.devices.barcodeScanner.modes.map((mode) => `
     <option value="${escapeHtml(mode.id)}">${escapeHtml(mode.label)}</option>
@@ -2433,7 +2467,6 @@ function readImageSize(file) {
 
 function updateDeviceSummary() {
   const storage = selectedStorageTarget();
-  const printer = selectedPrinterDriver();
   const scanner = selectedScannerMode();
   const storageValidation = validateCustomStoragePath(deviceSettings.customStoragePath || "", storage);
   const employeeName = state.currentUser
@@ -2441,80 +2474,37 @@ function updateDeviceSummary() {
     : state.config.employees.defaultEmployeeName;
   const employeeLabel = employeeName || "ยังไม่ผูกพนักงาน";
   const cameraConnected = deviceConnection.cameraPermission === "granted" || deviceConnection.cameraTestOk || Boolean(mediaStream) || Boolean(settingsCameraStream);
-  const printerConnected = isConnectedPrinter(printer);
   const scannerConnected = Boolean(scanner);
   const storageProfile = storageTargetProfile(storage, deviceSettings.customStoragePath || "");
   const storageConnected = Boolean(storage) && storageValidation.ok && !storageProfile.mountedRequired;
   const chips = [
     statusChip({ label: `พนักงาน: ${employeeLabel}`, connected: Boolean(employeeName) }),
     statusChip({ label: "กล้อง", connected: cameraConnected }),
-    statusChip({ label: "เครื่องพิมพ์ฉลาก", connected: printerConnected }),
+    statusChip({ label: "เครื่องพิมพ์ฉลาก: เลือกผ่าน Browser", connected: false }),
     statusChip({ label: "ที่จัดเก็บวิดีโอ", connected: storageConnected }),
     statusChip({ label: "Barcode Scanner", connected: scannerConnected })
   ];
   el.deviceSummary.innerHTML = chips.join("");
 }
 
-function renderPrinterOptions() {
-  const drivers = state.config.devices.labelPrinter.drivers || [];
-  const browserPrint = drivers.find((driver) => driver.id === "browser-print");
-  const connectedPrinters = drivers.filter((driver) => driver.id !== "browser-print");
-  el.printerDriverSelect.innerHTML = `
-    ${state.detectedPrinters.length ? `
-      <optgroup label="เครื่องพิมพ์ที่พบในเครื่อง">
-        ${state.detectedPrinters.map((printer) => `
-          <option value="${escapeHtml(printer.id)}">${escapeHtml(printer.label)}</option>
-        `).join("")}
-      </optgroup>
-    ` : ""}
-    ${connectedPrinters.length ? `
-      <optgroup label="เครื่องพิมพ์ที่เคยเชื่อมต่อ">
-        ${connectedPrinters.map((driver) => `
-          <option value="${escapeHtml(driver.id)}">${escapeHtml(driver.label)}</option>
-        `).join("")}
-      </optgroup>
-    ` : ""}
-    ${browserPrint ? `
-      <optgroup label="Browser Print ค้นหาเพื่อเชื่อมต่อเครื่องพิมพ์">
-        <option value="${escapeHtml(browserPrint.id)}">${escapeHtml(browserPrint.label)} - ค้นหา/เชื่อมต่อ</option>
-      </optgroup>
-    ` : ""}
-  `;
+function saveBrowserPrintPreference() {
+  browserPrintPreferences = saveBrowserPrintPreferences({ paperSize: el.browserPrintPaperSize.value });
+  el.browserPrintStatus.textContent = `บันทึกขนาดกระดาษ ${browserPrintPreferences.paperSize === "a4" ? "A4" : "100x150 mm"} ไว้ใน Browser นี้แล้ว`;
 }
 
-function updatePrinterStatus() {
-  const printer = selectedPrinterDriver();
-  if (!printer) {
-    el.printerStatus.textContent = "ยังไม่ได้เลือกเครื่องพิมพ์ฉลาก";
-    el.printerStatus.classList.add("error");
-    return;
-  }
-  const connected = isConnectedPrinter(printer);
-  el.printerStatus.classList.toggle("error", !connected);
-  el.printerStatus.textContent = connected
-    ? `${printer.source === "system" ? "พบ driver ในเครื่อง" : "เชื่อมต่อเครื่องพิมพ์ที่เคยใช้"}: ${printer.label}`
-    : "Browser Print จะเปิดหน้าต่างค้นหา/เลือกเครื่องพิมพ์ตอนสั่งพิมพ์ ยังไม่ถือว่าเชื่อมต่อเครื่องเฉพาะ";
-}
-
-async function discoverPrinters() {
-  el.printerStatus.classList.remove("error");
-  el.printerStatus.textContent = "กำลังค้นหาเครื่องพิมพ์ในเครื่อง...";
+async function discoverNasCupsPrinters() {
+  el.nasPrinterStatus.classList.remove("error");
+  el.nasPrinterStatus.textContent = "กำลังค้นหาเครื่องพิมพ์บน NAS / CUPS...";
   const result = await api("/api/devices/printers");
   if (!result.ok) {
-    el.printerStatus.textContent = result.message || "ค้นหาเครื่องพิมพ์ไม่สำเร็จ";
-    el.printerStatus.classList.add("error");
-    updateDeviceSummary();
+    el.nasPrinterStatus.textContent = result.message || "ค้นหาเครื่องพิมพ์บน NAS / CUPS ไม่สำเร็จ";
+    el.nasPrinterStatus.classList.add("error");
     return;
   }
-  state.detectedPrinters = result.data.printers || [];
-  localStorage.setItem("smartrecord.detectedPrinters", JSON.stringify(state.detectedPrinters));
-  renderPrinterOptions();
-  if (state.detectedPrinters.length > 0) {
-    deviceSettings.printerDriverId = state.detectedPrinters[0].id;
-  }
-  el.printerDriverSelect.value = deviceSettings.printerDriverId;
-  updatePrinterStatus();
-  updateDeviceSummary();
+  const printers = result.data.printers || [];
+  el.nasPrinterStatus.textContent = printers.length
+    ? `พบเครื่องพิมพ์ NAS / CUPS ${printers.length} เครื่อง: ${printers.map((printer) => printer.label).join(", ")}`
+    : "ไม่พบเครื่องพิมพ์ที่ตั้งค่าไว้บน NAS / CUPS";
 }
 
 function statusChip({ label, connected }) {
@@ -2528,7 +2518,7 @@ function statusChip({ label, connected }) {
 async function saveDeviceSettings() {
   deviceSettings.customStoragePath = el.customStoragePathInput.value.trim();
   deviceSettings.cameraDeviceId = el.cameraSelect.value;
-  deviceSettings.printerDriverId = el.printerDriverSelect.value;
+  saveBrowserPrintPreference();
   deviceSettings.scannerMode = el.scannerModeSelect.value;
 
   const validation = validateCustomStoragePath(deviceSettings.customStoragePath, selectedStorageTarget());
@@ -2830,15 +2820,6 @@ function storageTargetProfile(target, customPath = "") {
   };
 }
 
-function selectedPrinterDriver() {
-  return state.detectedPrinters.find((printer) => printer.id === deviceSettings.printerDriverId)
-    || state.config.devices.labelPrinter.drivers.find((driver) => driver.id === deviceSettings.printerDriverId);
-}
-
-function isConnectedPrinter(printer) {
-  return Boolean(printer && printer.id !== "browser-print");
-}
-
 function selectedScannerMode() {
   return state.config.devices.barcodeScanner.modes.find((mode) => mode.id === deviceSettings.scannerMode);
 }
@@ -2998,14 +2979,6 @@ function tickClock() {
   el.clock.textContent = new Date().toLocaleTimeString("th-TH", { hour12: false });
 }
 
-function readStoredDetectedPrinters() {
-  try {
-    const printers = JSON.parse(localStorage.getItem("smartrecord.detectedPrinters") || "[]");
-    return Array.isArray(printers) ? printers : [];
-  } catch {
-    return [];
-  }
-}
 
 function isDuplicateOrderCode(code) {
   return ["ORDER_ALREADY_EXISTS", "ORDER_DUPLICATE_LABEL", "ORDER_AWB_CONFLICT"].includes(code);

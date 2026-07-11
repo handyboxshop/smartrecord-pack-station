@@ -12,7 +12,7 @@ import {
   runTesseractOcr
 } from "../src/domain/ocrService.mjs";
 import { createPackService, resolveStorageTarget } from "../src/domain/packService.mjs";
-import { discoverLocalPrinters } from "../src/domain/printerDiscovery.mjs";
+import { discoverNasCupsPrinters } from "../src/domain/printerDiscovery.mjs";
 import { describeStorageTarget, resolveStorageRoot, verifyStorageDestination } from "../src/domain/storagePath.mjs";
 import { parseHttpRange } from "../src/domain/httpRange.mjs";
 import { detectPlatform, parseShippingLabelTexts } from "../src/domain/shippingLabelParser.mjs";
@@ -92,7 +92,8 @@ const server = http.createServer(async (req, res) => {
       sendResult(res, { ok: false, code: "INVALID_JSON", message: "Invalid JSON request body" });
       return;
     }
-    sendJson(res, 500, apiErrorPayload("SERVER_ERROR", error.message || "Server error"));
+    console.error(`[api] unhandled error: ${error?.stack || error?.message || error}`);
+    sendJson(res, 500, apiErrorPayload("SERVER_ERROR", "Server error"));
   }
 });
 
@@ -223,7 +224,7 @@ async function handleApi(req, res, url) {
     const token = readBearerToken(req);
     const auth = authService.requirePermission(token, "settings:manage");
     if (!auth.ok) return sendResult(res, auth);
-    sendResult(res, await discoverLocalPrinters());
+    sendResult(res, await discoverNasCupsPrinters());
     return;
   }
 

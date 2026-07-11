@@ -176,10 +176,7 @@
     "labelPrinter": {
       "defaultDriverId": "browser-print",
       "drivers": [
-        { "id": "browser-print", "label": "Browser Print Dialog" },
-        { "id": "tsc-te244", "label": "TSC TE244 / TTP Series" },
-        { "id": "xprinter-xp420b", "label": "Xprinter XP-420B" },
-        { "id": "zebra-zpl", "label": "Zebra / ZPL Compatible" }
+        { "id": "browser-print", "label": "Browser Print Dialog" }
       ]
     },
     "barcodeScanner": {

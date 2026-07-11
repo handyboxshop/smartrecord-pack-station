@@ -599,16 +599,25 @@
               <span class="settingsSectionIcon">🖨</span>
               <div>
                 <div class="settingsSectionTitle">เครื่องพิมพ์ฉลาก</div>
-                <div class="settingsSectionSub">เลือกเครื่องพิมพ์ที่เคยเชื่อมต่อ หรือใช้ Browser Print เพื่อค้นหาเครื่องพิมพ์</div>
+                <div class="settingsSectionSub">Browser Print (แนะนำ) สำหรับเครื่องพิมพ์ที่ต่อกับคอมพิวเตอร์ Pack Station</div>
               </div>
             </div>
             <label class="settingsField">
-              <span>Driver / Printer</span>
-              <select id="printerDriverSelect"></select>
+              <span>ขนาดกระดาษ</span>
+              <select id="browserPrintPaperSize">
+                <option value="a4">A4</option>
+                <option value="100x150">100x150 mm</option>
+              </select>
             </label>
+            <p class="settingsHint">เมื่อสั่งพิมพ์ Browser จะเปิดหน้าต่างพิมพ์ของระบบปฏิบัติการ เพื่อให้เลือกเครื่องพิมพ์ที่ต่ออยู่กับเครื่องนี้</p>
+            <p class="settingsHint">การตั้งค่านี้บันทึกเฉพาะเครื่องและ Browser ปัจจุบัน</p>
             <div class="settingsFieldRow">
-              <button type="button" class="secondary" id="searchPrinterBtn">ค้นหาเครื่องพิมพ์ในเครื่อง</button>
-              <p class="settingsHint flex1" id="printerStatus">ใช้สำหรับตั้งค่าหน้างานก่อนพิมพ์ฉลากจริง</p>
+              <button type="button" class="secondary" id="testBrowserPrintBtn">ทดสอบพิมพ์ผ่าน Browser</button>
+              <p class="settingsHint flex1" id="browserPrintStatus">Browser Print เป็นวิธีที่แนะนำ</p>
+            </div>
+            <div class="settingsFieldRow">
+              <button type="button" class="secondary" id="searchNasPrinterBtn">ค้นหาเครื่องพิมพ์บน NAS / CUPS</button>
+              <p class="settingsHint flex1" id="nasPrinterStatus">ตัวเลือกเสริม: ใช้ได้เมื่อ NAS / CUPS ถูกตั้งค่าไว้บน server เท่านั้น</p>
             </div>
           </section>
 

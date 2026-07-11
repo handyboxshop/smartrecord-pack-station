@@ -3,20 +3,25 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-export async function discoverLocalPrinters({ execFileFn = execFileAsync } = {}) {
+export async function discoverNasCupsPrinters({ execFileFn = execFileAsync } = {}) {
   try {
     const { stdout } = await execFileFn("lpstat", ["-p"], { timeout: 3000 });
     const printers = parseLpstatPrinters(stdout);
     return {
       ok: true,
       data: { printers },
-      message: printers.length ? `พบเครื่องพิมพ์ ${printers.length} เครื่อง` : "ไม่พบเครื่องพิมพ์ในเครื่องนี้"
+      message: printers.length ? `พบเครื่องพิมพ์ NAS / CUPS ${printers.length} เครื่อง` : "ไม่พบเครื่องพิมพ์ที่ตั้งค่าไว้บน NAS / CUPS"
     };
   } catch (error) {
+    if (error?.code === "ENOENT") return {
+      ok: false,
+      code: "NAS_CUPS_UNSUPPORTED",
+      message: "Server นี้ยังไม่ได้ตั้งค่า NAS / CUPS printer discovery"
+    };
     return {
       ok: false,
-      code: "PRINTER_DISCOVERY_FAILED",
-      message: `ค้นหาเครื่องพิมพ์ในเครื่องไม่สำเร็จ: ${error.message}`
+      code: "NAS_CUPS_DISCOVERY_FAILED",
+      message: "ไม่สามารถค้นหาเครื่องพิมพ์บน NAS / CUPS ได้"
     };
   }
 }

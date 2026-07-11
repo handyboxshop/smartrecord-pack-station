@@ -1,5 +1,18 @@
 # Project Memory
 
+## 2026-07-11 — Device Settings: Browser Print is workstation-local
+
+- what: ปรับ workflow เครื่องพิมพ์ใน Device Settings ให้ตรงกับการติดตั้งจริงที่ server รันใน Docker บน NAS แต่เครื่องพิมพ์ต่ออยู่กับ Windows/macOS Pack Station
+- root cause: UI เดิมเรียก `lpstat` จาก server และแสดงผลเสมือนเป็น printer ในเครื่อง Pack Station ทั้งที่ browser ไม่สามารถ enumerate printer ชื่อจริงหรือยืนยัน online/offline ได้; Docker image ไม่มี `cups-client`
+- correct:
+  - ให้ Browser Print เป็นวิธีแนะนำ/ค่าเริ่มต้น พร้อมเลือกกระดาษ A4 หรือ 100x150 mm และปุ่ม test print ที่เปิด OS print dialog
+  - เก็บเฉพาะ paper-size preference ใน `localStorage` ของ workstation/browser (`smartrecord.browserPrintPreferences`); ไม่ย้าย camera/scanner deviceId ไป server
+  - แยก NAS / CUPS discovery เป็นตัวเลือกเสริม ชื่อชัดเจน และเมื่อไม่มี `lpstat` ให้ตอบ `NAS_CUPS_UNSUPPORTED` โดยไม่เผย executable หรือ filesystem path
+  - ลบชื่อ driver/local printer แบบคาดเดาและไม่แสดงสถานะ online ที่ไม่ได้ตรวจจริง
+  - รักษา `settings:manage` ที่ route NAS/CUPS และ sanitize unhandled API error ก่อนตอบ browser
+- Verification:
+  - `npm test --prefix web` ผ่าน 124/124 (ต้องรันนอก sandbox เพื่อเปิด localhost สำหรับ server runtime tests)
+
 ## 2026-06-30
 
 ปรับ Rebrand + Theme UI เป็น HYD FURNITURE:
