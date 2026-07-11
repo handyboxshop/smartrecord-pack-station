@@ -94,7 +94,7 @@ test("storage root rejects machine root path", () => {
   assert.equal(result.code, "CUSTOM_STORAGE_PATH_TOO_BROAD");
 });
 
-test("storage verification creates and removes a probe file", async () => {
+test("storage verification creates and removes a probe file without returning the resolved server path", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "smartrecord-storage-"));
   const result = await verifyStorageDestination({
     fs,
@@ -104,9 +104,11 @@ test("storage verification creates and removes a probe file", async () => {
   });
 
   assert.equal(result.ok, true);
+  assert.equal(result.data.status, "available");
   assert.equal(result.data.writable, true);
-  assert.equal(result.data.storageRoot, path.join(tempRoot, "verified-storage"));
-  const files = await fs.readdir(result.data.storageRoot);
+  assert.equal(result.data.storageRoot, undefined);
+  assert.equal(result.data.actualWritePath, undefined);
+  const files = await fs.readdir(path.join(tempRoot, "verified-storage"));
   assert.deepEqual(files, []);
 });
 
@@ -120,9 +122,9 @@ test("storage verification accepts website URL only as cloud sync external desti
   });
 
   assert.equal(result.ok, true);
-  assert.equal(result.data.destinationType, "website-url");
-  assert.equal(result.data.externalUrl, "https://drive.google.com/drive/folders/demo");
-  assert.equal(result.data.storageRoot, path.join(tempRoot, "local-nas/cloud-sync"));
+  assert.equal(result.data.status, "available");
+  assert.equal(result.data.externalUrl, undefined);
+  assert.equal(result.data.storageRoot, undefined);
 });
 
 test("local-machine target writes to a real local folder", async () => {
@@ -136,9 +138,8 @@ test("local-machine target writes to a real local folder", async () => {
 
   assert.equal(result.ok, true);
   assert.equal(result.data.writable, true);
-  assert.equal(result.data.mountedRequired, false);
-  assert.equal(result.data.targetMode, "local-machine");
-  assert.equal(result.data.storageRoot, path.join(tempRoot, "local-nas/this-machine"));
+  assert.equal(result.data.status, "available");
+  assert.equal(result.data.storageRoot, undefined);
 });
 
 test("main-nas with project fallback is marked simulated and mounted required", () => {
@@ -150,10 +151,10 @@ test("main-nas with project fallback is marked simulated and mounted required", 
   assert.equal(profile.targetMode, "nas-simulated");
   assert.equal(profile.mountedRequired, true);
   assert.equal(profile.simulated, true);
-  assert.equal(profile.actualWritePath, path.join(rootDir, "local-nas/videos"));
+  assert.equal(profile.actualWritePath, undefined);
 });
 
-test("main-nas storage test still writes only to local fallback until NAS is mounted", async () => {
+test("main-nas storage test requires a mounted destination instead of verifying a local fallback", async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "smartrecord-main-nas-"));
   const result = await verifyStorageDestination({
     fs,
@@ -162,12 +163,31 @@ test("main-nas storage test still writes only to local fallback until NAS is mou
     customPath: ""
   });
 
-  assert.equal(result.ok, true);
-  assert.equal(result.data.writable, true);
-  assert.equal(result.data.mountedRequired, true);
-  assert.equal(result.data.simulated, true);
-  assert.match(result.data.message, /NAS ยังไม่ mount จริง/);
-  assert.equal(result.data.storageRoot, path.join(tempRoot, "local-nas/videos"));
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "STORAGE_MOUNT_UNAVAILABLE");
+  assert.doesNotMatch(JSON.stringify(result), new RegExp(tempRoot.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+});
+
+test("storage verification returns stable safe errors without raw system details", async () => {
+  const rawError = Object.assign(new Error("EACCES: /private/nas/runtime/node"), { code: "EACCES", errno: -13, path: "/private/nas/runtime" });
+  const logs = [];
+  const result = await verifyStorageDestination({
+    fs: {
+      mkdir: async () => { throw rawError; },
+      writeFile: async () => {},
+      unlink: async () => {}
+    },
+    rootDir,
+    storageTarget,
+    customPath: "safe-target",
+    logError: (...args) => logs.push(args)
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "STORAGE_NOT_WRITABLE");
+  assert.doesNotMatch(JSON.stringify(result), /private\/nas|EACCES:|errno|node/);
+  assert.equal(logs.length, 1);
+  assert.equal(logs[0][1], rawError);
 });
 
 test("custom nas rejects ip address as non-writable mounted path", () => {

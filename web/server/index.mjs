@@ -69,6 +69,7 @@ const packService = createPackService({ config, orders, records: packRecords });
 const importService = createImportService({ orders, syncOrders, demoMode: mode !== "production" });
 const labelService = createLabelService({ config, initialLabels: labels });
 const printerDiscovery = resolvePrinterDiscovery();
+const storageVerification = resolveStorageVerification();
 
 const server = http.createServer(async (req, res) => {
   try {
@@ -235,17 +236,18 @@ async function handleApi(req, res, url) {
     if (!auth.ok) return sendResult(res, auth);
     const body = await readJson(req);
     const storageTarget = resolveStorageTarget(config, body.storageTargetId);
-    const result = await verifyStorageDestination({
+    const result = await storageVerification({
       fs,
       rootDir,
       storageTarget,
-      customPath: body.customPath || ""
+      customPath: body.customPath || "",
+      logError: (message, error) => console.error(message, error?.stack || error?.message || error)
     });
     if (result.ok) authService.recordActivity(token, {
       action: "storage_test",
       moduleId: "settings",
       targetId: storageTarget.id,
-      details: `ตรวจที่จัดเก็บวิดีโอ: ${result.data.displayPath}`
+      details: `ตรวจที่จัดเก็บวิดีโอ: ${result.data.targetLabel}`
     });
     sendResult(res, result);
     return;
@@ -566,7 +568,6 @@ function getPublicConfig(source) {
         label: target.label,
         provider: target.provider,
         host: target.host,
-        localPath: target.localPath,
         isDefault: target.isDefault
       }))
     },
@@ -1360,6 +1361,44 @@ function resolvePrinterDiscovery() {
     });
   }
   return discoverNasCupsPrinters;
+}
+
+function resolveStorageVerification() {
+  const fixture = mode === "test" ? process.env.SMARTRECORD_TEST_STORAGE_VERIFICATION : "";
+  if (!fixture) return verifyStorageDestination;
+  return async ({ storageTarget }) => {
+    const targetLabel = storageTarget?.label || "ปลายทางจัดเก็บ";
+    if (fixture === "success") {
+      return {
+        ok: true,
+        data: {
+          status: "available",
+          targetLabel,
+          writable: true,
+          message: "SmartRecord server ตรวจสอบปลายทางจัดเก็บและเขียนไฟล์ทดสอบได้"
+        }
+      };
+    }
+    if (fixture === "mount-unavailable") {
+      return {
+        ok: false,
+        code: "STORAGE_MOUNT_UNAVAILABLE",
+        message: "ปลายทาง NAS ยังต้องตั้งค่าหรือ mount บน SmartRecord server ก่อนตรวจสอบได้"
+      };
+    }
+    if (fixture === "not-writable") {
+      return {
+        ok: false,
+        code: "STORAGE_NOT_WRITABLE",
+        message: "ปลายทางจัดเก็บไม่อนุญาตให้ SmartRecord server เขียนไฟล์"
+      };
+    }
+    return {
+      ok: false,
+      code: "STORAGE_VERIFICATION_FAILED",
+      message: "ตรวจสอบปลายทางจัดเก็บไม่สำเร็จ กรุณาลองใหม่หรือตรวจการตั้งค่าบน server"
+    };
+  };
 }
 
 function sendResult(res, result) {

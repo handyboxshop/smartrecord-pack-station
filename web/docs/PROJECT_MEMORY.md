@@ -36,6 +36,9 @@
 - path ที่ระบบเขียนไฟล์จริง ต้องดูจาก `localPath` หรือ mounted path ที่ user กรอก
 - ถ้า target แบบ NAS ยังชี้ไปที่ project path เช่น `local-nas/videos` ให้ถือเป็น `simulated / mounted required`
 - NAS จริงจะใช้งานได้ต่อเมื่อ mount path แล้ว เช่น `/Volumes/SmartRecord` หรือ `/data/smartrecord`
+- Device Settings เก็บ storage target, custom path, camera และ scanner ไว้เฉพาะ Browser/คอมพิวเตอร์ของ Pack Station นั้น ไม่ใช่ค่า shared บน server
+- การกดบันทึก Device Settings จะให้ SmartRecord server ตรวจสอบปลายทาง storage; API/UI ต้องคืนเฉพาะสถานะและข้อความปลอดภัย ห้ามส่ง resolved path, write path หรือ raw filesystem error กลับ Browser
+- NAS target ที่ยังต้อง mount ต้องคืนสถานะ `STORAGE_MOUNT_UNAVAILABLE` และห้ามยืนยัน writable จาก local fallback
 - ใบปะหน้าที่อัปโหลดผ่าน `Connect / Import` แล้ว OCR ได้บางส่วน แต่ยังไม่พอสร้าง `ORDER_DB`
   - ต้องไม่หายจากระบบ
   - ต้องถูกเก็บเป็น `draft label import`
