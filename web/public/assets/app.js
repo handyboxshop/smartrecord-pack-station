@@ -241,6 +241,7 @@ let recordingDiagnostics = resetRecordingDiagnostics();
 let recTimerId = null;
 let recSeconds = 0;
 let deviceSettings = null;
+let storageVerification = { status: "not-checked", message: "ยังไม่ได้ตรวจสอบปลายทางบน SmartRecord server" };
 let browserPrintPreferences = loadBrowserPrintPreferences();
 let settingsCameraStream = null;
 let labelImageDataUrl = "";
@@ -419,6 +420,7 @@ function bindEvents() {
     const card = event.target.closest("[data-target-id]");
     if (!card) return;
     deviceSettings.storageTargetId = card.dataset.targetId;
+    storageVerification = { status: "not-checked", message: "ยังไม่ได้ตรวจสอบปลายทางบน SmartRecord server" };
     renderStorageCards();
     updateCustomPathUI();
     updateStorageHint();
@@ -426,6 +428,7 @@ function bindEvents() {
   });
   el.customStoragePathInput.addEventListener("input", () => {
     deviceSettings.customStoragePath = el.customStoragePathInput.value.trim();
+    storageVerification = { status: "not-checked", message: "ยังไม่ได้ตรวจสอบปลายทางบน SmartRecord server" };
     updateStorageHint();
     updateDeviceSummary();
   });
@@ -2337,7 +2340,6 @@ function updateStorageHint(serverStorage = null) {
   const customPath = el.customStoragePathInput.value.trim();
   const validation = validateCustomStoragePath(customPath, selected);
   const isInvalid = Boolean(customPath) && !validation.ok;
-  const selectedProfile = storageTargetProfile(selected, customPath);
   el.customStoragePathInput.classList.toggle("invalid", isInvalid);
   el.customStoragePathInput.setAttribute("aria-invalid", isInvalid ? "true" : "false");
   el.saveSettingsBtn.disabled = !validation.ok;
@@ -2347,30 +2349,14 @@ function updateStorageHint(serverStorage = null) {
     return;
   }
   if (serverStorage) {
-    if (serverStorage.externalUrl) {
-      el.storageHint.textContent = `✓ ${serverStorage.message} · เขียนไฟล์จริงที่: ${serverStorage.actualWritePath || serverStorage.storageRoot} · ปลายทาง Cloud Sync: ${serverStorage.externalUrl}`;
-      return;
-    }
-    if (serverStorage.mountedRequired) {
-      el.storageHint.textContent = `จำลอง / ยังไม่ mount NAS · เขียนไฟล์จริงที่: ${serverStorage.actualWritePath || serverStorage.storageRoot} · NAS จะใช้งานจริงได้เมื่อ mount path แล้ว เช่น /Volumes/SmartRecord หรือ /data/smartrecord`;
-      return;
-    }
-    el.storageHint.textContent = `✓ ${serverStorage.message} · เขียนไฟล์จริงที่: ${serverStorage.actualWritePath || serverStorage.storageRoot}`;
+    el.storageHint.textContent = `✓ ${serverStorage.message}`;
     return;
   }
   if (!selected) {
     el.storageHint.textContent = "ยังไม่ได้เลือกที่จัดเก็บ";
     return;
   }
-  if (selectedProfile.externalUrl) {
-    el.storageHint.textContent = `${storageModeHint(selected, selectedProfile)} · เขียนไฟล์จริงที่: ${selectedProfile.actualWritePath} · ปลายทาง Cloud Sync: ${selectedProfile.externalUrl}`;
-    return;
-  }
-  if (selectedProfile.mountedRequired) {
-    el.storageHint.textContent = `${storageModeHint(selected, selectedProfile)} · เขียนไฟล์จริงที่: ${selectedProfile.actualWritePath} · NAS จะใช้งานจริงได้เมื่อ mount path แล้ว เช่น /Volumes/SmartRecord หรือ /data/smartrecord`;
-    return;
-  }
-  el.storageHint.textContent = `${storageModeHint(selected, selectedProfile)} · เขียนไฟล์จริงที่: ${selectedProfile.actualWritePath}`;
+  el.storageHint.textContent = storageVerification.message;
 }
 
 async function previewSelectedPrePackImage() {
@@ -2468,20 +2454,26 @@ function readImageSize(file) {
 function updateDeviceSummary() {
   const storage = selectedStorageTarget();
   const scanner = selectedScannerMode();
-  const storageValidation = validateCustomStoragePath(deviceSettings.customStoragePath || "", storage);
   const employeeName = state.currentUser
     ? state.currentUser.employeeName || employeeNameForId(state.currentUser.employeeId)
     : state.config.employees.defaultEmployeeName;
   const employeeLabel = employeeName || "ยังไม่ผูกพนักงาน";
   const cameraConnected = deviceConnection.cameraPermission === "granted" || deviceConnection.cameraTestOk || Boolean(mediaStream) || Boolean(settingsCameraStream);
   const scannerConnected = Boolean(scanner);
-  const storageProfile = storageTargetProfile(storage, deviceSettings.customStoragePath || "");
-  const storageConnected = Boolean(storage) && storageValidation.ok && !storageProfile.mountedRequired;
+  const storageStatus = storageVerification.status;
+  const storageConnected = storageStatus === "available";
+  const storageChipState = storageConnected ? "connected" : storageStatus === "not-checked" || storageStatus === "requires-configuration" ? "neutral" : "disconnected";
+  const storageChipLabel = {
+    available: "ยืนยันแล้ว",
+    unavailable: "ปลายทางไม่พร้อมหรือเขียนไม่ได้",
+    "requires-configuration": "ต้องตั้งค่า/mount",
+    "not-checked": "ยังไม่ตรวจสอบ"
+  }[storageStatus] || "ยังไม่ตรวจสอบ";
   const chips = [
     statusChip({ label: `พนักงาน: ${employeeLabel}`, state: Boolean(employeeName) ? "connected" : "disconnected" }),
     statusChip({ label: "กล้อง", state: cameraConnected ? "connected" : "disconnected" }),
     statusChip({ label: "เครื่องพิมพ์ฉลาก: เลือกผ่าน Browser", state: "neutral" }),
-    statusChip({ label: "ที่จัดเก็บวิดีโอ", state: storageConnected ? "connected" : "disconnected" }),
+    statusChip({ label: `ที่จัดเก็บวิดีโอ: ${storageChipLabel}`, state: storageChipState }),
     statusChip({ label: "Barcode Scanner", state: scannerConnected ? "connected" : "disconnected" })
   ];
   el.deviceSummary.innerHTML = chips.join("");
@@ -2537,6 +2529,7 @@ async function saveDeviceSettings() {
       customPath: deviceSettings.customStoragePath
     });
     if (!storageResult.ok) {
+      storageVerification = storageVerificationFromResult(storageResult);
       el.storageHint.classList.add("error");
       el.storageHint.textContent = storageResult.message || "ตรวจที่จัดเก็บไม่สำเร็จ";
       updateDeviceSummary();
@@ -2545,6 +2538,7 @@ async function saveDeviceSettings() {
     }
 
     localStorage.setItem("smartrecord.deviceSettings", JSON.stringify(deviceSettings));
+    storageVerification = { status: "available", message: storageResult.data.message || "SmartRecord server ยืนยันปลายทางจัดเก็บแล้ว" };
     updateStorageHint(storageResult.data);
     updateDeviceSummary();
     toast("บันทึก Settings แล้ว");
@@ -2695,22 +2689,6 @@ function storageProviderLabel(provider = "") {
   }[provider] || provider.toUpperCase();
 }
 
-function storageModeHint(target, profile = storageTargetProfile(target)) {
-  if (target.provider === "nas" && profile.mountedRequired) {
-    return `${target.label}: จำลอง / ยังไม่ mount NAS (${target.host})`;
-  }
-  if (target.provider === "nas") {
-    return `${target.label}: เก็บลง NAS ที่ mount แล้ว (${target.host})`;
-  }
-  if (target.provider === "cloud-sync") {
-    return `${target.label}: เก็บผ่านเว็บภายนอกหรือโฟลเดอร์ Cloud Sync`;
-  }
-  if (target.provider === "local") {
-    return `${target.label}: เก็บลงเครื่องนี้`;
-  }
-  return `${target.label}: ${target.provider}`;
-}
-
 function storageDestinationLabel(rawPath) {
   return /^https?:\/\//i.test(rawPath) ? "Website URL" : "path ที่ใช้";
 }
@@ -2732,7 +2710,7 @@ function validateCustomStoragePath(rawPath, selectedTarget) {
   if (selectedTarget?.provider === "nas" && selectedTarget?.id === "custom-nas" && !rawPath) {
     return {
       ok: false,
-      message: "NAS กำหนดเองต้องกรอก mounted path จริงก่อนใช้งาน เช่น /Volumes/SmartRecord หรือ /data/smartrecord"
+      message: "NAS กำหนดเองต้องกรอก mounted path จริงก่อนใช้งาน"
     };
   }
   if (!rawPath) return { ok: true };
@@ -2766,13 +2744,13 @@ function validateCustomStoragePath(rawPath, selectedTarget) {
   if (selectedTarget?.provider === "nas" && /^(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?(?:\/.*)?$/i.test(rawPath)) {
     return {
       ok: false,
-      message: "ห้ามกรอกเป็น IP address อย่างเดียว ต้องใช้ mounted path จริง เช่น /Volumes/SmartRecord หรือ /data/smartrecord"
+      message: "ห้ามกรอกเป็น IP address อย่างเดียว ต้องใช้ mounted path จริง"
     };
   }
   if (selectedTarget?.provider === "nas" && !(/^\/|^[a-z]:[\\/]/i.test(rawPath))) {
     return {
       ok: false,
-      message: "NAS ต้องใช้ absolute path หรือ mounted path จริงเท่านั้น เช่น /Volumes/SmartRecord หรือ /data/smartrecord"
+      message: "NAS ต้องใช้ absolute path หรือ mounted path จริงเท่านั้น"
     };
   }
   if (rawPath.startsWith("/") || /^[a-z]:[\\/]/i.test(rawPath)) {
@@ -2788,36 +2766,17 @@ function validateCustomStoragePath(rawPath, selectedTarget) {
 }
 
 function storageTargetBadge(target) {
-  const profile = storageTargetProfile(target);
-  if (profile.customPathRequired) return { label: "ต้องกรอก path", tone: "warning" };
-  if (profile.mountedRequired) return { label: "จำลอง / ยังไม่ mount NAS", tone: "warning" };
-  if (profile.externalUrl) return { label: "Cloud Sync", tone: "info" };
+  if (target.provider === "nas" && target.id === "custom-nas") return { label: "ต้องตั้งค่า", tone: "warning" };
+  if (target.provider === "nas" && target.mountedRequired) return { label: "ต้อง mount", tone: "warning" };
+  if (target.provider === "cloud-sync") return { label: "Cloud Sync", tone: "info" };
   return null;
 }
 
-function storageTargetProfile(target, customPath = "") {
-  if (!target) {
-    return {
-      actualWritePath: "-",
-      externalUrl: "",
-      mountedRequired: false,
-      customPathRequired: false
-    };
-  }
-  const rawCustomPath = String(customPath || "").trim();
-  const effectivePath = rawCustomPath || target.resolvedLocalPath || target.localPath || "-";
-  const externalUrl = /^https?:\/\//i.test(rawCustomPath) ? rawCustomPath : "";
-  const usesResolvedTargetPath = !rawCustomPath || externalUrl;
-  const mountedRequired = target.provider === "nas"
-    && (rawCustomPath
-      ? !(/^\/|^[a-z]:[\\/]/i.test(rawCustomPath))
-      : Boolean(target.mountedRequired));
-  return {
-    actualWritePath: usesResolvedTargetPath ? (target.resolvedLocalPath || target.localPath || "-") : effectivePath,
-    externalUrl,
-    mountedRequired,
-    customPathRequired: target.provider === "nas" && target.id === "custom-nas"
-  };
+function storageVerificationFromResult(result) {
+  const status = result.code === "STORAGE_MOUNT_UNAVAILABLE" || result.code === "CUSTOM_STORAGE_PATH_REQUIRED"
+    ? "requires-configuration"
+    : "unavailable";
+  return { status, message: result.message || "ตรวจที่จัดเก็บไม่สำเร็จ" };
 }
 
 function selectedScannerMode() {

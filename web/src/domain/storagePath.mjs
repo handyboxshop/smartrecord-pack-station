@@ -6,7 +6,7 @@ export function resolveStorageRoot({ rootDir, storageTarget, customPath }) {
     return {
       ok: false,
       code: "CUSTOM_STORAGE_PATH_REQUIRED",
-      message: "NAS กำหนดเองต้องกรอก mounted path จริงก่อนใช้งาน เช่น /Volumes/SmartRecord หรือ /data/smartrecord"
+      message: "NAS กำหนดเองต้องกรอก mounted path จริงก่อนใช้งาน"
     };
   }
 
@@ -36,36 +36,46 @@ export function resolveStorageRoot({ rootDir, storageTarget, customPath }) {
   return resolveProjectStorage({ rootDir, rawPath, destinationType: "file-path", provider: storageTarget.provider });
 }
 
-export async function verifyStorageDestination({ fs, rootDir, storageTarget, customPath }) {
+export async function verifyStorageDestination({ fs, rootDir, storageTarget, customPath, logError }) {
   const resolved = resolveStorageRoot({ rootDir, storageTarget, customPath });
-  if (!resolved.ok) return resolved;
+  if (!resolved.ok) return safeStorageError(resolved.code, resolved.message);
+  if (resolved.data.mountedRequired) {
+    return safeStorageError(
+      "STORAGE_MOUNT_UNAVAILABLE",
+      "ปลายทาง NAS ยังต้องตั้งค่าหรือ mount บน SmartRecord server ก่อนตรวจสอบได้"
+    );
+  }
 
-  const { storageRoot, externalUrl, destinationType } = resolved.data;
   try {
-    await fs.mkdir(storageRoot, { recursive: true });
-    const probePath = path.join(storageRoot, `.smartrecord-storage-test-${Date.now()}.tmp`);
+    await fs.mkdir(resolved.data.storageRoot, { recursive: true });
+    const probePath = path.join(resolved.data.storageRoot, `.smartrecord-storage-test-${Date.now()}.tmp`);
     await fs.writeFile(probePath, "smartrecord-storage-ok", "utf8");
     await fs.unlink(probePath);
     return {
       ok: true,
       data: {
-        ...resolved.data,
+        status: "available",
+        targetLabel: storageTarget.label,
         writable: true,
-        message: externalUrl
-          ? "Website URL ถูกบันทึกเป็นปลายทาง Cloud Sync และโฟลเดอร์ fallback เขียนได้"
-          : resolved.data.mountedRequired
-            ? "ทดสอบเขียนไฟล์ใน local fallback ได้ แต่ NAS ยังไม่ mount จริง"
-          : "Path นี้เขียนไฟล์ได้จริง"
+        message: "SmartRecord server ตรวจสอบปลายทางจัดเก็บและเขียนไฟล์ทดสอบได้"
       }
     };
   } catch (error) {
-    return {
-      ok: false,
-      code: "STORAGE_NOT_WRITABLE",
-      message: `เขียนไฟล์ทดสอบไม่ได้: ${error.message}`,
-      data: { storageRoot, externalUrl, destinationType }
-    };
+    if (typeof logError === "function") {
+      logError(`[storage] verification failed for target=${storageTarget?.id || "unknown"}`, error);
+    }
+    if (["EACCES", "EPERM", "EROFS"].includes(error?.code)) {
+      return safeStorageError("STORAGE_NOT_WRITABLE", "ปลายทางจัดเก็บไม่อนุญาตให้ SmartRecord server เขียนไฟล์");
+    }
+    if (["ENOENT", "ENOTDIR", "ENODEV", "ESTALE"].includes(error?.code)) {
+      return safeStorageError("STORAGE_DESTINATION_UNAVAILABLE", "ปลายทางจัดเก็บไม่พร้อมใช้งานบน SmartRecord server");
+    }
+    return safeStorageError("STORAGE_VERIFICATION_FAILED", "ตรวจสอบปลายทางจัดเก็บไม่สำเร็จ กรุณาลองใหม่หรือตรวจการตั้งค่าบน server");
   }
+}
+
+function safeStorageError(code, message) {
+  return { ok: false, code, message };
 }
 
 function validateExternalUrl(rawPath) {
@@ -121,12 +131,10 @@ function resolveProjectStorage({ rootDir, rawPath, externalUrl = "", destination
       storageRoot: resolved,
       externalUrl,
       destinationType,
-      displayPath: externalUrl || resolved,
       isInsideProject: resolved.startsWith(projectRoot),
       targetMode: classifyStorageMode({ provider, storageTargetPath: rawPath, resolvedPath: resolved, projectRoot, externalUrl }),
       mountedRequired: isMountedPathRequired({ provider, storageTargetPath: rawPath, resolvedPath: resolved, projectRoot, externalUrl }),
-      simulated: isMountedPathRequired({ provider, storageTargetPath: rawPath, resolvedPath: resolved, projectRoot, externalUrl }),
-      actualWritePath: resolved
+      simulated: isMountedPathRequired({ provider, storageTargetPath: rawPath, resolvedPath: resolved, projectRoot, externalUrl })
     }
   };
 }
@@ -136,12 +144,10 @@ export function describeStorageTarget({ rootDir, storageTarget, customPath = "" 
   if (requiresCustomNasMountPath(storageTarget) && !customPathValue) {
     return {
       provider: storageTarget.provider,
-      resolvedLocalPath: resolveAbsolutePath(rootDir, storageTarget.localPath),
       targetMode: "nas-custom-required",
       mountedRequired: true,
       simulated: true,
-      customPathRequired: true,
-      actualWritePath: resolveAbsolutePath(rootDir, storageTarget.localPath)
+      customPathRequired: true
     };
   }
 
@@ -164,12 +170,10 @@ export function describeStorageTarget({ rootDir, storageTarget, customPath = "" 
   });
   return {
     provider: storageTarget.provider,
-    resolvedLocalPath,
     targetMode,
     mountedRequired,
     simulated: mountedRequired,
-    customPathRequired: requiresCustomNasMountPath(storageTarget),
-    actualWritePath: externalUrl ? resolveAbsolutePath(rootDir, storageTarget.localPath) : resolvedLocalPath
+    customPathRequired: requiresCustomNasMountPath(storageTarget)
   };
 }
 
@@ -187,7 +191,7 @@ function validateNasWritablePath(rawPath, storageTarget, isCustomOverride) {
     return {
       ok: false,
       code: "INVALID_CUSTOM_STORAGE_PATH",
-      message: "ห้ามกรอกเป็น IP address อย่างเดียว ต้องใช้ mounted path จริง เช่น /Volumes/SmartRecord หรือ /data/smartrecord"
+      message: "ห้ามกรอกเป็น IP address อย่างเดียว ต้องใช้ mounted path จริง"
     };
   }
   if (requiresCustomNasMountPath(storageTarget) || isCustomOverride) {
@@ -195,7 +199,7 @@ function validateNasWritablePath(rawPath, storageTarget, isCustomOverride) {
       return {
         ok: false,
         code: "CUSTOM_STORAGE_PATH_MUST_BE_ABSOLUTE",
-        message: "NAS ต้องใช้ absolute path หรือ mounted path จริงเท่านั้น เช่น /Volumes/SmartRecord หรือ /data/smartrecord"
+        message: "NAS ต้องใช้ absolute path หรือ mounted path จริงเท่านั้น"
       };
     }
   }

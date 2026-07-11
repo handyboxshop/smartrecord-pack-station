@@ -91,6 +91,57 @@ test("NAS/CUPS printer route requires settings:manage", async (t) => {
   });
 });
 
+test("storage verification enforces settings:manage and returns only safe status payloads", async (t) => {
+  for (const [fixture, expected] of [
+    ["success", { status: 200, code: undefined, storageStatus: "available" }],
+    ["mount-unavailable", { status: 400, code: "STORAGE_MOUNT_UNAVAILABLE" }],
+    ["not-writable", { status: 400, code: "STORAGE_NOT_WRITABLE" }],
+    ["unexpected", { status: 400, code: "STORAGE_VERIFICATION_FAILED" }]
+  ]) {
+    const port = nextPort();
+    const runtime = await createPrinterTestRuntime(fixture);
+    const server = await startServer(port, runtime.env);
+    const serializedFixturePath = runtime.dir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    try {
+      const unauthenticated = await requestJson(port, "/api/devices/storage/test", {
+        method: "POST",
+        body: { storageTargetId: "local-machine" }
+      });
+      assert.equal(unauthenticated.status, 401);
+      assert.equal(unauthenticated.body.code, "AUTH_REQUIRED");
+
+      const packer = await login(port, "packer@test.local", "pack-password");
+      const forbidden = await requestJson(port, "/api/devices/storage/test", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${packer.token}` },
+        body: { storageTargetId: "local-machine" }
+      });
+      assert.equal(forbidden.status, 403);
+      assert.equal(forbidden.body.code, "FORBIDDEN");
+
+      const admin = await login(port, "admin@test.local", "admin-password");
+      const response = await requestJson(port, "/api/devices/storage/test", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${admin.token}` },
+        body: { storageTargetId: "local-machine" }
+      });
+      assert.equal(response.status, expected.status);
+      assert.equal(response.body.code, expected.code);
+      if (expected.storageStatus) assert.equal(response.body.data.status, expected.storageStatus);
+      const payload = JSON.stringify(response.body);
+      assert.doesNotMatch(payload, new RegExp(serializedFixturePath));
+      assert.doesNotMatch(payload, /storageRoot|actualWritePath|resolvedLocalPath|errno|stack|process\.cwd|node_modules/i);
+
+      const publicConfig = await requestJson(port, "/api/config");
+      assert.equal(publicConfig.status, 200);
+      assert.doesNotMatch(JSON.stringify(publicConfig.body.data.upload.storageTargets), /localPath|resolvedLocalPath|actualWritePath|storageRoot/i);
+    } finally {
+      await stopServer(server);
+      await fs.rm(runtime.dir, { recursive: true, force: true });
+    }
+  }
+});
+
 test("starting a second server on the same port fails clearly", async (t) => {
   const port = nextPort();
   const primary = await startServer(port);
@@ -210,7 +261,7 @@ async function login(port, email, password) {
   return response.body.data;
 }
 
-async function createPrinterTestRuntime() {
+async function createPrinterTestRuntime(storageFixture = "") {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "smartrecord-printer-test-"));
   const config = JSON.parse(await fs.readFile(configPath, "utf8"));
   config.auth.users = [
@@ -236,7 +287,8 @@ async function createPrinterTestRuntime() {
       SMARTRECORD_LABELS_PATH: path.join(dir, "labels.json"),
       SMARTRECORD_APP_SETTINGS_PATH: path.join(dir, "app-settings.json"),
       NODE_ENV: "test",
-      SMARTRECORD_TEST_PRINTER_DISCOVERY: "success"
+      SMARTRECORD_TEST_PRINTER_DISCOVERY: "success",
+      SMARTRECORD_TEST_STORAGE_VERIFICATION: storageFixture
     }
   };
 }
