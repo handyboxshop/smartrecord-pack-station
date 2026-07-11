@@ -1,5 +1,17 @@
 # Project Memory
 
+## 2026-07-11 — OCR and System Diagnostics
+
+- what: เพิ่ม `GET /api/devices/diagnostics` สำหรับ Device Settings และส่วน System Diagnostics ใน UI เพื่อให้ตรวจ SmartRecord server, OCR runtime, การตั้งค่า OCR และ OCR preprocessing timeout ได้แบบอ่านอย่างเดียว
+- root cause: เดิม Device Settings ไม่มีสถานะ OCR ที่ยืนยันจาก backend และค่า timeout ของ OCRmyPDF ใช้ fallback โดยไม่แสดงความแตกต่างระหว่างค่าเริ่มต้นกับ config ที่ไม่ถูกต้อง
+- correct:
+  - route ต้องคง `settings:manage`; ตอบเฉพาะ status/code/message ที่ปลอดภัย และ log รายละเอียด unexpected error ไว้ server-side เท่านั้น
+  - probe OCR ใช้เพียง `<configured command> --version` โดยไม่ส่งไฟล์ลูกค้า, ไม่ upload, ไม่เรียก OCR จริง และไม่เขียน runtime data
+  - UI เริ่ม/เปิด Device Settings ใหม่ด้วย “ยังไม่ได้ตรวจสอบ”; แสดง green เฉพาะผล `ready` ที่ backend ยืนยันแล้ว และ network failure เป็น unavailable
+  - `preprocessPdfForOcr` ใช้ timeout fallback 120000 ms เมื่อ config ไม่มีหรือ invalid; diagnostics แยก `OCR_TIMEOUT_DEFAULT` ออกจาก `OCR_TIMEOUT_INVALID`
+  - fixtures สำหรับ diagnostic success/failure ทำงานเฉพาะ `NODE_ENV=test` แม้ production มี environment variable ชื่อ fixture อยู่ก็ต้องไม่ใช้
+- Verification: `npm run check` และ `npm test` ใน `web/` ผ่าน 133/133 รวม auth, sanitization, no-write และ UI static coverage
+
 ## 2026-07-11 — Device Settings: Browser Print is workstation-local
 
 - what: ปรับ workflow เครื่องพิมพ์ใน Device Settings ให้ตรงกับการติดตั้งจริงที่ server รันใน Docker บน NAS แต่เครื่องพิมพ์ต่ออยู่กับ Windows/macOS Pack Station

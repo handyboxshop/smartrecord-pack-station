@@ -7,6 +7,7 @@ import { createImportService } from "../src/domain/importService.mjs";
 import { createLabelService } from "../src/domain/labelService.mjs";
 import {
   convertPdfToPngPages,
+  inspectOcrDiagnostics,
   preprocessPdfForOcr,
   resolveOcrConfig,
   runTesseractOcr
@@ -70,6 +71,7 @@ const importService = createImportService({ orders, syncOrders, demoMode: mode !
 const labelService = createLabelService({ config, initialLabels: labels });
 const printerDiscovery = resolvePrinterDiscovery();
 const storageVerification = resolveStorageVerification();
+const ocrDiagnostics = resolveOcrDiagnostics();
 
 const server = http.createServer(async (req, res) => {
   try {
@@ -227,6 +229,22 @@ async function handleApi(req, res, url) {
     const auth = authService.requirePermission(token, "settings:manage");
     if (!auth.ok) return sendResult(res, auth);
     sendResult(res, await printerDiscovery());
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/devices/diagnostics") {
+    const token = readBearerToken(req);
+    const auth = authService.requirePermission(token, "settings:manage");
+    if (!auth.ok) return sendResult(res, auth);
+    try {
+      sendResult(res, { ok: true, data: await ocrDiagnostics() });
+    } catch (error) {
+      console.error("[diagnostics] unexpected diagnostic failure", error?.stack || error?.message || error);
+      sendResult(res, {
+        ok: true,
+        data: safeDiagnosticFailure()
+      });
+    }
     return;
   }
 
@@ -1398,6 +1416,43 @@ function resolveStorageVerification() {
       code: "STORAGE_VERIFICATION_FAILED",
       message: "ตรวจสอบปลายทางจัดเก็บไม่สำเร็จ กรุณาลองใหม่หรือตรวจการตั้งค่าบน server"
     };
+  };
+}
+
+function resolveOcrDiagnostics() {
+  const fixture = mode === "test" ? process.env.SMARTRECORD_TEST_OCR_DIAGNOSTICS : "";
+  if (!fixture) return () => inspectOcrDiagnostics({ ocrConfig: config.ocr });
+  return async () => {
+    if (fixture === "not-configured") return inspectOcrDiagnostics({ ocrConfig: null });
+    if (fixture === "unavailable") return inspectOcrDiagnostics({
+      ocrConfig: config.ocr,
+      probeRuntime: async () => ({ available: false })
+    });
+    if (fixture === "invalid-timeout") return inspectOcrDiagnostics({
+      ocrConfig: { ...config.ocr, preprocessPdf: { ...config.ocr?.preprocessPdf, timeoutMs: "invalid" } },
+      probeRuntime: async () => ({ available: true })
+    });
+    if (fixture === "unexpected") return inspectOcrDiagnostics({
+      ocrConfig: config.ocr,
+      probeRuntime: async () => { throw new Error(`diagnostic secret at ${process.cwd()} node_modules`); }
+    });
+    return inspectOcrDiagnostics({
+      ocrConfig: config.ocr,
+      probeRuntime: async () => ({ available: true })
+    });
+  };
+}
+
+function safeDiagnosticFailure() {
+  return {
+    checkedAt: new Date().toISOString(),
+    overallStatus: "unavailable",
+    checks: {
+      server: { status: "ready", code: "SERVER_READY", message: "SmartRecord server พร้อมให้บริการ" },
+      ocr: { status: "unavailable", code: "OCR_DIAGNOSTIC_FAILED", message: "ตรวจสอบ OCR runtime ไม่สำเร็จ" },
+      ocrConfiguration: { status: "degraded", code: "OCR_DIAGNOSTIC_FAILED", message: "ตรวจสอบการตั้งค่า OCR ไม่สำเร็จ" },
+      ocrTimeout: { status: "degraded", code: "OCR_DIAGNOSTIC_FAILED", message: "ตรวจสอบ OCR timeout ไม่สำเร็จ" }
+    }
   };
 }
 

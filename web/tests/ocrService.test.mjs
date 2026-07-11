@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import test from "node:test";
 import {
   buildOcrmypdfArgs,
   buildPdfToPngArgs,
   buildTesseractArgs,
   convertPdfToPngPages,
+  inspectOcrDiagnostics,
+  probeOcrRuntime,
+  resolveOcrPreprocessTimeout,
   resolveOcrConfig
 } from "../src/domain/ocrService.mjs";
 
@@ -29,6 +33,90 @@ test("resolveOcrConfig merges per-platform values over generic defaults", () => 
   assert.equal(lazada.preserveInterwordSpaces, true);
   assert.equal("platforms" in lazada, false);
 });
+
+test("OCR diagnostics reports configured, unavailable, and invalid timeout states without exposing probe errors", async () => {
+  const ready = await inspectOcrDiagnostics({
+    ocrConfig: { engine: "tesseract", command: "tesseract", preprocessPdf: { timeoutMs: 5000 } },
+    probeRuntime: async () => ({ available: true })
+  });
+  assert.equal(ready.overallStatus, "ready");
+  assert.equal(ready.checks.ocr.code, "OCR_READY");
+  assert.equal(ready.checks.ocrTimeout.code, "OCR_TIMEOUT_CONFIGURED");
+
+  const unavailable = await inspectOcrDiagnostics({
+    ocrConfig: { engine: "tesseract", command: "tesseract" },
+    probeRuntime: async () => ({ available: false })
+  });
+  assert.equal(unavailable.overallStatus, "unavailable");
+  assert.equal(unavailable.checks.ocr.code, "OCR_RUNTIME_UNAVAILABLE");
+
+  const invalid = await inspectOcrDiagnostics({
+    ocrConfig: { engine: "tesseract", command: "tesseract", preprocessPdf: { timeoutMs: "bad" } },
+    probeRuntime: async () => ({ available: true })
+  });
+  assert.equal(invalid.overallStatus, "degraded");
+  assert.equal(invalid.checks.ocrTimeout.code, "OCR_TIMEOUT_INVALID");
+  assert.match(invalid.checks.ocrTimeout.message, /120000/);
+
+  const sanitized = await inspectOcrDiagnostics({
+    ocrConfig: { engine: "tesseract", command: "tesseract" },
+    probeRuntime: async () => { throw new Error("secret /private/customer/node_modules/tesseract"); }
+  });
+  assert.equal(sanitized.checks.ocr.code, "OCR_DIAGNOSTIC_FAILED");
+  assert.doesNotMatch(JSON.stringify(sanitized), /secret|private|node_modules/i);
+});
+
+test("OCR preprocess timeout keeps a positive default when configuration is missing or invalid", () => {
+  assert.deepEqual(resolveOcrPreprocessTimeout({}), { timeoutMs: 120000, source: "default", valid: true });
+  assert.deepEqual(resolveOcrPreprocessTimeout({ preprocessPdf: { timeoutMs: 0 } }), { timeoutMs: 120000, source: "fallback", valid: false });
+});
+
+test("OCR runtime diagnostic probe is bounded and never returns command or error details", async () => {
+  const successfulChild = fakeChild();
+  const success = probeOcrRuntime({
+    command: "/private/ocr-secret-command",
+    spawnProcess: () => successfulChild,
+    logError: () => assert.fail("successful probe must not log an error")
+  });
+  successfulChild.emit("close", 0);
+  assert.deepEqual(await success, { available: true });
+
+  const unavailableChild = fakeChild();
+  const unavailable = probeOcrRuntime({
+    command: "/private/ocr-secret-command",
+    spawnProcess: () => unavailableChild,
+    logError: () => {}
+  });
+  unavailableChild.emit("error", Object.assign(new Error("failed /private/ocr-secret-command"), { code: "ENOENT", path: "/private/ocr-secret-command" }));
+  assert.deepEqual(await unavailable, { available: false });
+
+  const timeoutChild = fakeChild();
+  const timeout = await probeOcrRuntime({
+    command: "/private/ocr-secret-command",
+    timeoutMs: 10,
+    spawnProcess: () => timeoutChild,
+    logError: () => {}
+  });
+  assert.deepEqual(timeout, { available: false });
+  assert.deepEqual(timeoutChild.kills, ["SIGTERM"]);
+  timeoutChild.emit("close", 0);
+  assert.deepEqual(timeout, { available: false });
+
+  const unexpected = await probeOcrRuntime({
+    command: "/private/ocr-secret-command",
+    spawnProcess: () => { throw new Error("secret /private/ocr-secret-command node_modules"); },
+    logError: () => {}
+  });
+  assert.deepEqual(unexpected, { available: false });
+  assert.doesNotMatch(JSON.stringify({ success: await success, unavailable: await unavailable, timeout, unexpected }), /secret|private|command|node_modules/i);
+});
+
+function fakeChild() {
+  const child = new EventEmitter();
+  child.kills = [];
+  child.kill = (signal) => child.kills.push(signal);
+  return child;
+}
 
 test("buildTesseractArgs includes language, engine, psm and optional flags", () => {
   const args = buildTesseractArgs("/tmp/label.png", {

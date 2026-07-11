@@ -91,6 +91,73 @@ test("NAS/CUPS printer route requires settings:manage", async (t) => {
   });
 });
 
+test("OCR system diagnostics requires settings:manage, is sanitized, and does not write runtime data", async (t) => {
+  for (const [fixture, expected] of [
+    ["ready", { overallStatus: "ready", ocrCode: "OCR_READY" }],
+    ["not-configured", { overallStatus: "degraded", ocrCode: "OCR_NOT_CONFIGURED" }],
+    ["unavailable", { overallStatus: "unavailable", ocrCode: "OCR_RUNTIME_UNAVAILABLE" }],
+    ["invalid-timeout", { overallStatus: "degraded", ocrCode: "OCR_READY", timeoutCode: "OCR_TIMEOUT_INVALID" }],
+    ["unexpected", { overallStatus: "unavailable", ocrCode: "OCR_DIAGNOSTIC_FAILED" }]
+  ]) {
+    const port = nextPort();
+    const runtime = await createPrinterTestRuntime("", fixture);
+    const before = await runtimeFilesSnapshot(runtime.dir);
+    const server = await startServer(port, runtime.env);
+    try {
+      const unauthenticated = await requestJson(port, "/api/devices/diagnostics");
+      assert.equal(unauthenticated.status, 401);
+      assert.equal(unauthenticated.body.code, "AUTH_REQUIRED");
+
+      const packer = await login(port, "packer@test.local", "pack-password");
+      const forbidden = await requestJson(port, "/api/devices/diagnostics", {
+        headers: { Authorization: `Bearer ${packer.token}` }
+      });
+      assert.equal(forbidden.status, 403);
+      assert.equal(forbidden.body.code, "FORBIDDEN");
+
+      const admin = await login(port, "admin@test.local", "admin-password");
+      const response = await requestJson(port, "/api/devices/diagnostics", {
+        headers: { Authorization: `Bearer ${admin.token}` }
+      });
+      assert.equal(response.status, 200);
+      assert.equal(response.body.ok, true);
+      assert.equal(response.body.data.overallStatus, expected.overallStatus);
+      assert.equal(response.body.data.checks.ocr.code, expected.ocrCode);
+      if (expected.timeoutCode) assert.equal(response.body.data.checks.ocrTimeout.code, expected.timeoutCode);
+      const payload = JSON.stringify(response.body);
+      assert.doesNotMatch(payload, /diagnostic secret|process\.cwd|node_modules|errno|stack|process\.env|private\//i);
+      assert.match(response.body.data.checkedAt, /^\d{4}-\d{2}-\d{2}T/);
+    } finally {
+      assert.deepEqual(await runtimeFilesSnapshot(runtime.dir), before);
+      await stopServer(server);
+      await fs.rm(runtime.dir, { recursive: true, force: true });
+    }
+  }
+});
+
+test("OCR diagnostic fixtures are ignored outside NODE_ENV=test", async (t) => {
+  const port = nextPort();
+  const runtime = await createPrinterTestRuntime("", "ready", {
+    mode: "production",
+    ocrCommand: "smartrecord-test-ocr-command-not-installed"
+  });
+  const server = await startServer(port, runtime.env);
+  t.after(async () => {
+    await stopServer(server);
+    await fs.rm(runtime.dir, { recursive: true, force: true });
+  });
+
+  const admin = await login(port, "admin@test.local", "admin-password");
+  const response = await requestJson(port, "/api/devices/diagnostics", {
+    headers: { Authorization: `Bearer ${admin.token}` }
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.body.ok, true);
+  assert.equal(response.body.data.overallStatus, "unavailable");
+  assert.equal(response.body.data.checks.ocr.code, "OCR_RUNTIME_UNAVAILABLE");
+});
+
 test("storage verification enforces settings:manage and returns only safe status payloads", async (t) => {
   for (const [fixture, expected] of [
     ["success", { status: 200, code: undefined, storageStatus: "available" }],
@@ -261,13 +328,14 @@ async function login(port, email, password) {
   return response.body.data;
 }
 
-async function createPrinterTestRuntime(storageFixture = "") {
+async function createPrinterTestRuntime(storageFixture = "", ocrFixture = "", { mode = "test", ocrCommand = "" } = {}) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "smartrecord-printer-test-"));
   const config = JSON.parse(await fs.readFile(configPath, "utf8"));
   config.auth.users = [
     testUser("admin@test.local", "admin-password", "admin"),
     testUser("packer@test.local", "pack-password", "packer")
   ];
+  if (ocrCommand) config.ocr.command = ocrCommand;
   const runtimeConfigPath = path.join(dir, "app-config.json");
   await fs.writeFile(runtimeConfigPath, JSON.stringify(config));
   await Promise.all([
@@ -286,11 +354,24 @@ async function createPrinterTestRuntime(storageFixture = "") {
       SMARTRECORD_PACK_RECORDS_PATH: path.join(dir, "pack-records.json"),
       SMARTRECORD_LABELS_PATH: path.join(dir, "labels.json"),
       SMARTRECORD_APP_SETTINGS_PATH: path.join(dir, "app-settings.json"),
-      NODE_ENV: "test",
+      NODE_ENV: mode,
       SMARTRECORD_TEST_PRINTER_DISCOVERY: "success",
-      SMARTRECORD_TEST_STORAGE_VERIFICATION: storageFixture
+      SMARTRECORD_TEST_STORAGE_VERIFICATION: storageFixture,
+      SMARTRECORD_TEST_OCR_DIAGNOSTICS: ocrFixture
     }
   };
+}
+
+async function runtimeFilesSnapshot(dir) {
+  const names = ["orders.json", "sync-orders.json", "pack-records.json", "labels.json", "app-settings.json"];
+  return Promise.all(names.map(async (name) => {
+    try {
+      return [name, await fs.readFile(path.join(dir, name), "utf8")];
+    } catch (error) {
+      if (error.code === "ENOENT") return [name, null];
+      throw error;
+    }
+  }));
 }
 
 function testUser(email, password, roleId) {
