@@ -12,7 +12,7 @@ import {
   runTesseractOcr
 } from "../src/domain/ocrService.mjs";
 import { createPackService, resolveStorageTarget } from "../src/domain/packService.mjs";
-import { discoverLocalPrinters } from "../src/domain/printerDiscovery.mjs";
+import { discoverNasCupsPrinters } from "../src/domain/printerDiscovery.mjs";
 import { describeStorageTarget, resolveStorageRoot, verifyStorageDestination } from "../src/domain/storagePath.mjs";
 import { parseHttpRange } from "../src/domain/httpRange.mjs";
 import { detectPlatform, parseShippingLabelTexts } from "../src/domain/shippingLabelParser.mjs";
@@ -68,6 +68,7 @@ const authService = createAuthService({ config, initialUsers: users });
 const packService = createPackService({ config, orders, records: packRecords });
 const importService = createImportService({ orders, syncOrders, demoMode: mode !== "production" });
 const labelService = createLabelService({ config, initialLabels: labels });
+const printerDiscovery = resolvePrinterDiscovery();
 
 const server = http.createServer(async (req, res) => {
   try {
@@ -92,7 +93,8 @@ const server = http.createServer(async (req, res) => {
       sendResult(res, { ok: false, code: "INVALID_JSON", message: "Invalid JSON request body" });
       return;
     }
-    sendJson(res, 500, apiErrorPayload("SERVER_ERROR", error.message || "Server error"));
+    console.error(`[api] unhandled error: ${error?.stack || error?.message || error}`);
+    sendJson(res, 500, apiErrorPayload("SERVER_ERROR", "Server error"));
   }
 });
 
@@ -223,7 +225,7 @@ async function handleApi(req, res, url) {
     const token = readBearerToken(req);
     const auth = authService.requirePermission(token, "settings:manage");
     if (!auth.ok) return sendResult(res, auth);
-    sendResult(res, await discoverLocalPrinters());
+    sendResult(res, await printerDiscovery());
     return;
   }
 
@@ -1340,6 +1342,24 @@ function readBearerToken(req) {
   const header = req.headers.authorization || "";
   const match = /^Bearer\s+(.+)$/i.exec(header);
   return match?.[1] || "";
+}
+
+function resolvePrinterDiscovery() {
+  if (mode === "test" && process.env.SMARTRECORD_TEST_PRINTER_DISCOVERY === "success") {
+    return async () => ({
+      ok: true,
+      data: {
+        printers: [{
+          id: "system:test-cups-printer",
+          label: "Test CUPS Printer",
+          systemName: "test-cups-printer",
+          source: "system"
+        }]
+      },
+      message: "พบเครื่องพิมพ์ NAS / CUPS 1 เครื่อง"
+    });
+  }
+  return discoverNasCupsPrinters;
 }
 
 function sendResult(res, result) {

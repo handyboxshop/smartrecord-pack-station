@@ -1,10 +1,15 @@
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
+import fs from "node:fs/promises";
 import http from "node:http";
+import os from "node:os";
+import path from "node:path";
 import { spawn } from "node:child_process";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const cwd = fileURLToPath(new URL("..", import.meta.url));
+const configPath = path.join(cwd, "config", "app-config.example.json");
 let portSeed = 43170 + (process.pid % 200);
 
 test("GET /api/health returns stable JSON payload", async (t) => {
@@ -50,6 +55,42 @@ test("auth-required API returns JSON contract for expired or missing session", a
   assert.equal(response.body.message, "Please login again");
 });
 
+test("NAS/CUPS printer route requires settings:manage", async (t) => {
+  const port = nextPort();
+  const runtime = await createPrinterTestRuntime();
+  const server = await startServer(port, runtime.env);
+  t.after(async () => {
+    await stopServer(server);
+    await fs.rm(runtime.dir, { recursive: true, force: true });
+  });
+
+  const unauthenticated = await requestJson(port, "/api/devices/printers");
+  assert.equal(unauthenticated.status, 401);
+  assert.equal(unauthenticated.body.code, "AUTH_REQUIRED");
+
+  const packer = await login(port, "packer@test.local", "pack-password");
+  const forbidden = await requestJson(port, "/api/devices/printers", {
+    headers: { Authorization: `Bearer ${packer.token}` }
+  });
+  assert.equal(forbidden.status, 403);
+  assert.equal(forbidden.body.code, "FORBIDDEN");
+
+  const admin = await login(port, "admin@test.local", "admin-password");
+  const authorized = await requestJson(port, "/api/devices/printers", {
+    headers: { Authorization: `Bearer ${admin.token}` }
+  });
+  assert.equal(authorized.status, 200);
+  assert.equal(authorized.body.ok, true);
+  assert.deepEqual(authorized.body.data, {
+    printers: [{
+      id: "system:test-cups-printer",
+      label: "Test CUPS Printer",
+      systemName: "test-cups-printer",
+      source: "system"
+    }]
+  });
+});
+
 test("starting a second server on the same port fails clearly", async (t) => {
   const port = nextPort();
   const primary = await startServer(port);
@@ -88,10 +129,10 @@ function nextPort() {
   return portSeed;
 }
 
-async function startServer(port) {
+async function startServer(port, env = {}) {
   const child = spawn(process.execPath, ["server/index.mjs"], {
     cwd,
-    env: { ...process.env, PORT: String(port) },
+    env: { ...process.env, ...env, PORT: String(port) },
     stdio: ["ignore", "pipe", "pipe"]
   });
   const output = [];
@@ -134,9 +175,9 @@ function stopServer(server) {
   });
 }
 
-function requestJson(port, pathname) {
+function requestJson(port, pathname, { method = "GET", headers = {}, body } = {}) {
   return new Promise((resolve, reject) => {
-    const req = http.get(`http://127.0.0.1:${port}${pathname}`, (res) => {
+    const req = http.request(`http://127.0.0.1:${port}${pathname}`, { method, headers }, (res) => {
       const chunks = [];
       res.on("data", (chunk) => chunks.push(chunk));
       res.on("end", () => {
@@ -153,7 +194,65 @@ function requestJson(port, pathname) {
       });
     });
     req.on("error", reject);
+    if (body) req.write(JSON.stringify(body));
+    req.end();
   });
+}
+
+async function login(port, email, password) {
+  const response = await requestJson(port, "/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: { email, password }
+  });
+  assert.equal(response.status, 200);
+  assert.equal(response.body.ok, true);
+  return response.body.data;
+}
+
+async function createPrinterTestRuntime() {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "smartrecord-printer-test-"));
+  const config = JSON.parse(await fs.readFile(configPath, "utf8"));
+  config.auth.users = [
+    testUser("admin@test.local", "admin-password", "admin"),
+    testUser("packer@test.local", "pack-password", "packer")
+  ];
+  const runtimeConfigPath = path.join(dir, "app-config.json");
+  await fs.writeFile(runtimeConfigPath, JSON.stringify(config));
+  await Promise.all([
+    fs.writeFile(path.join(dir, "orders.json"), "{}"),
+    fs.writeFile(path.join(dir, "sync-orders.json"), "[]"),
+    fs.writeFile(path.join(dir, "pack-records.json"), "[]"),
+    fs.writeFile(path.join(dir, "labels.json"), "[]")
+  ]);
+  return {
+    dir,
+    env: {
+      SMARTRECORD_CONFIG_PATH: runtimeConfigPath,
+      SMARTRECORD_USERS_PATH: path.join(dir, "missing-users.json"),
+      SMARTRECORD_ORDERS_PATH: path.join(dir, "orders.json"),
+      SMARTRECORD_SYNC_ORDERS_PATH: path.join(dir, "sync-orders.json"),
+      SMARTRECORD_PACK_RECORDS_PATH: path.join(dir, "pack-records.json"),
+      SMARTRECORD_LABELS_PATH: path.join(dir, "labels.json"),
+      SMARTRECORD_APP_SETTINGS_PATH: path.join(dir, "app-settings.json"),
+      NODE_ENV: "test",
+      SMARTRECORD_TEST_PRINTER_DISCOVERY: "success"
+    }
+  };
+}
+
+function testUser(email, password, roleId) {
+  const passwordSalt = `test-salt-${roleId}`;
+  return {
+    id: `USR-${roleId.toUpperCase()}`,
+    email,
+    name: roleId,
+    roleId,
+    employeeId: null,
+    active: true,
+    passwordSalt,
+    passwordHash: crypto.pbkdf2Sync(password, passwordSalt, 120000, 32, "sha256").toString("hex")
+  };
 }
 
 function delay(ms) {
