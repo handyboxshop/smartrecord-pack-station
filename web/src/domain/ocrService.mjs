@@ -1,5 +1,123 @@
 import { spawn } from "node:child_process";
 
+export const DEFAULT_OCR_PREPROCESS_TIMEOUT_MS = 120000;
+export const DEFAULT_OCR_DIAGNOSTIC_TIMEOUT_MS = 5000;
+
+export function resolveOcrPreprocessTimeout(config = {}) {
+  const value = config.preprocessPdf?.timeoutMs;
+  if (value === undefined || value === null || value === "") {
+    return { timeoutMs: DEFAULT_OCR_PREPROCESS_TIMEOUT_MS, source: "default", valid: true };
+  }
+  const timeoutMs = Number(value);
+  if (Number.isFinite(timeoutMs) && timeoutMs > 0) {
+    return { timeoutMs, source: "configured", valid: true };
+  }
+  return { timeoutMs: DEFAULT_OCR_PREPROCESS_TIMEOUT_MS, source: "fallback", valid: false };
+}
+
+export async function inspectOcrDiagnostics({ ocrConfig, probeRuntime = probeOcrRuntime } = {}) {
+  const timeout = resolveOcrPreprocessTimeout(ocrConfig || {});
+  const configuration = isOcrConfigured(ocrConfig)
+    ? check("ready", "OCR_CONFIGURED", "กำหนดค่า OCR แล้ว")
+    : check("not-configured", "OCR_NOT_CONFIGURED", "ยังไม่ได้กำหนดค่า OCR");
+  let ocr;
+  if (configuration.status !== "ready") {
+    ocr = check("not-configured", "OCR_NOT_CONFIGURED", "ยังไม่ได้กำหนดค่า OCR จึงยังตรวจ OCR runtime ไม่ได้");
+  } else {
+    try {
+      const runtime = await probeRuntime({ command: ocrConfig.command || "tesseract" });
+      ocr = runtime?.available
+        ? check("ready", "OCR_READY", "OCR runtime พร้อมใช้งาน")
+        : check("unavailable", "OCR_RUNTIME_UNAVAILABLE", "OCR runtime ไม่พร้อมใช้งานบน server");
+    } catch (error) {
+      console.error("[diagnostics] OCR runtime probe failed", error?.stack || error?.message || error);
+      ocr = check("unavailable", "OCR_DIAGNOSTIC_FAILED", "ตรวจสอบ OCR runtime ไม่สำเร็จ");
+    }
+  }
+  const ocrTimeout = configuration.status !== "ready"
+    ? check("not-configured", "OCR_TIMEOUT_NOT_CONFIGURED", "ยังไม่ได้กำหนดค่า OCR จึงยังไม่มี OCR preprocessing timeout ที่ใช้งาน")
+    : ocrConfig.preprocessPdf?.enabled !== true
+      ? check("not-configured", "OCR_PREPROCESSING_DISABLED", "ปิด OCR preprocessing อยู่ จึงไม่มี OCRmyPDF timeout ที่ใช้งาน")
+      : timeout.valid
+        ? check("ready", timeout.source === "configured" ? "OCR_TIMEOUT_CONFIGURED" : "OCR_TIMEOUT_DEFAULT", timeout.source === "configured"
+          ? `OCR timeout ตั้งค่าไว้ ${timeout.timeoutMs} ms`
+          : `OCR timeout ใช้ค่าเริ่มต้น ${timeout.timeoutMs} ms`)
+        : check("degraded", "OCR_TIMEOUT_INVALID", `OCR timeout ไม่ถูกต้อง ระบบใช้ค่า fallback ${timeout.timeoutMs} ms`);
+  const statuses = [configuration.status, ocr.status, ocrTimeout.status];
+  const overallStatus = statuses.includes("unavailable") ? "unavailable" : statuses.includes("degraded") || statuses.includes("not-configured") ? "degraded" : "ready";
+  return { checkedAt: new Date().toISOString(), overallStatus, checks: { server: check("ready", "SERVER_READY", "SmartRecord server พร้อมให้บริการ"), ocr, ocrConfiguration: configuration, ocrTimeout } };
+}
+
+export async function probeOcrRuntime({
+  command,
+  timeoutMs = DEFAULT_OCR_DIAGNOSTIC_TIMEOUT_MS,
+  spawnProcess = spawn,
+  logError = logOcrDiagnosticError
+} = {}) {
+  return new Promise((resolve) => {
+    let child;
+    let settled = false;
+    let timeout = null;
+    let forceKill = null;
+
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      if (timeout) clearTimeout(timeout);
+      resolve(result);
+    };
+
+    try {
+      child = spawnProcess(command, ["--version"], { stdio: "ignore" });
+    } catch (error) {
+      logError(error);
+      finish({ available: false });
+      return;
+    }
+    child.once("error", (error) => {
+      if (error?.code !== "ENOENT") logError(error);
+      if (forceKill) clearTimeout(forceKill);
+      finish({ available: false });
+    });
+    child.once("close", (code) => {
+      if (forceKill) clearTimeout(forceKill);
+      finish({ available: code === 0 });
+    });
+    const boundedTimeoutMs = Number.isFinite(Number(timeoutMs)) && Number(timeoutMs) > 0
+      ? Number(timeoutMs)
+      : DEFAULT_OCR_DIAGNOSTIC_TIMEOUT_MS;
+    timeout = setTimeout(() => {
+      forceKill = setTimeout(() => {
+        try {
+          child.kill("SIGKILL");
+        } catch (error) {
+          logError(error);
+        }
+      }, 2000);
+      forceKill.unref?.();
+      finish({ available: false });
+      try {
+        child.kill("SIGTERM");
+      } catch (error) {
+        logError(error);
+      }
+    }, boundedTimeoutMs);
+    timeout.unref?.();
+  });
+}
+
+function logOcrDiagnosticError(error) {
+  console.error("[diagnostics] OCR runtime probe failed", error?.stack || error?.message || error);
+}
+
+function isOcrConfigured(config) {
+  return Boolean(config && typeof config === "object" && String(config.engine || "").trim() && String(config.command || "").trim());
+}
+
+function check(status, code, message) {
+  return { status, code, message };
+}
+
 export function resolveOcrConfig(config = {}, platform = "") {
   const platformConfig = platform && config.platforms && typeof config.platforms === "object"
     ? config.platforms[platform] || {}
@@ -125,7 +243,14 @@ export async function convertPdfToPngPages({ filePath, outputPrefix, config = {}
   });
 }
 
-export async function preprocessPdfForOcr({ filePath, outputPath, config = {} } = {}) {
+export async function preprocessPdfForOcr({
+  filePath,
+  outputPath,
+  config = {},
+  spawnProcess = spawn,
+  setTimeoutFn = setTimeout,
+  clearTimeoutFn = clearTimeout
+} = {}) {
   if (!filePath) return fail("PDF_FILE_REQUIRED", "ไม่พบไฟล์ PDF สำหรับ preprocess");
   if (!outputPath) return fail("PDF_OUTPUT_REQUIRED", "ไม่พบปลายทางสำหรับ preprocess PDF");
   const preprocess = config.preprocessPdf || {};
@@ -135,10 +260,10 @@ export async function preprocessPdfForOcr({ filePath, outputPath, config = {} } 
 
   const command = preprocess.command || "ocrmypdf";
   const args = buildOcrmypdfArgs(filePath, outputPath, config);
-  const timeoutMs = Number(preprocess.timeoutMs || 120000);
+  const timeoutMs = resolveOcrPreprocessTimeout(config).timeoutMs;
 
   return new Promise((resolve) => {
-    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawnProcess(command, args, { stdio: ["ignore", "pipe", "pipe"] });
     const stderr = [];
     let settled = false;
     let timeout = null;
@@ -146,14 +271,14 @@ export async function preprocessPdfForOcr({ filePath, outputPath, config = {} } 
     const finish = (result) => {
       if (settled) return;
       settled = true;
-      if (timeout) clearTimeout(timeout);
+      if (timeout) clearTimeoutFn(timeout);
       resolve(result);
     };
 
     if (timeoutMs > 0) {
-      timeout = setTimeout(() => {
+      timeout = setTimeoutFn(() => {
         child.kill("SIGTERM");
-        const forceKill = setTimeout(() => child.kill("SIGKILL"), 2000);
+        const forceKill = setTimeoutFn(() => child.kill("SIGKILL"), 2000);
         forceKill.unref?.();
         finish(fail("PDF_PREPROCESSOR_TIMEOUT", `OCRmyPDF ใช้เวลานานเกิน ${timeoutMs}ms และถูกหยุดการทำงาน`));
       }, timeoutMs);

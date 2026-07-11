@@ -48,3 +48,20 @@ test("Device Settings separates browser-local choices from NAS/server verificati
   assert.doesNotMatch(app, /storageConnected = Boolean\(storage\)/);
   assert.doesNotMatch(app, /serverStorage\.actualWritePath|serverStorage\.storageRoot|target\.resolvedLocalPath/);
 });
+
+test("Device Settings keeps OCR diagnostics neutral until the protected backend check succeeds", async () => {
+  const [html, app] = await Promise.all([
+    fs.readFile(path.join(webDir, "public", "index.html"), "utf8"),
+    fs.readFile(path.join(webDir, "public", "assets", "app.js"), "utf8")
+  ]);
+
+  assert.match(html, /System Diagnostics/);
+  assert.match(html, /ตรวจสอบระบบ/);
+  assert.match(html, /ยังไม่ได้ตรวจสอบ/);
+  assert.match(app, /OCR configuration/);
+  assert.match(app, /api\("\/api\/devices\/diagnostics"\)/);
+  assert.match(app, /state\.diagnostics = null/);
+  assert.match(app, /if \(status === "ready"\) return "ready"/);
+  assert.match(app, /ตรวจสอบอีกครั้ง/);
+  assert.doesNotMatch(app, /state\.diagnostics = \{[^}]*overallStatus: "ready"/);
+});

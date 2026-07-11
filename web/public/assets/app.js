@@ -19,7 +19,8 @@ const state = {
   labelSearchQuery: "",
   selectedOrderIds: new Set(),
   activeLabelPreviewId: "",
-  pendingLabelAutoPrint: false
+  pendingLabelAutoPrint: false,
+  diagnostics: null
 };
 
 const el = {
@@ -70,6 +71,10 @@ const el = {
   settingsDialog: document.querySelector("#settingsDialog"),
   closeSettingsBtn: document.querySelector("#closeSettingsBtn"),
   cancelSettingsBtn: document.querySelector("#cancelSettingsBtn"),
+  diagnosticsOverall: document.querySelector("#diagnosticsOverall"),
+  diagnosticsChecks: document.querySelector("#diagnosticsChecks"),
+  diagnosticsCheckedAt: document.querySelector("#diagnosticsCheckedAt"),
+  checkDiagnosticsBtn: document.querySelector("#checkDiagnosticsBtn"),
   storageCardGroup: document.querySelector("#storageCardGroup"),
   storageCustomWrap: document.querySelector("#storageCustomWrap"),
   customPathLabel: document.querySelector("#customPathLabel"),
@@ -411,6 +416,7 @@ function bindEvents() {
     event.stopPropagation();
     el.userDropdown?.classList.add("hidden");
     el.settingsDialog.showModal();
+    resetDiagnostics();
     updateCameraPermissionStatus();
     refreshCameraDevices();
   });
@@ -439,6 +445,7 @@ function bindEvents() {
   el.browserPrintPaperSize?.addEventListener("change", saveBrowserPrintPreference);
   el.testBrowserPrintBtn?.addEventListener("click", testBrowserPrint);
   el.searchNasPrinterBtn?.addEventListener("click", discoverNasCupsPrinters);
+  el.checkDiagnosticsBtn?.addEventListener("click", checkSystemDiagnostics);
   el.prePackImageInput?.addEventListener("change", previewSelectedPrePackImage);
   el.uploadPrePackImageBtn?.addEventListener("click", uploadPrePackImage);
   el.scannerModeSelect.addEventListener("change", () => {
@@ -2477,6 +2484,86 @@ function updateDeviceSummary() {
     statusChip({ label: "Barcode Scanner", state: scannerConnected ? "connected" : "disconnected" })
   ];
   el.deviceSummary.innerHTML = chips.join("");
+}
+
+function resetDiagnostics() {
+  state.diagnostics = null;
+  renderDiagnostics();
+}
+
+function renderDiagnostics() {
+  if (!el.diagnosticsOverall || !el.diagnosticsChecks || !el.diagnosticsCheckedAt) return;
+  const data = state.diagnostics;
+  if (!data) {
+    el.diagnosticsOverall.textContent = "ยังไม่ได้ตรวจสอบ";
+    el.diagnosticsOverall.className = "diagnosticsOverall neutral";
+    el.diagnosticsChecks.innerHTML = ["SmartRecord server", "OCR service", "OCR configuration", "OCR timeout"].map((label) => `
+      <div class="diagnosticsCheck neutral"><b>${escapeHtml(label)}</b><span>ยังไม่ได้ตรวจสอบ</span></div>
+    `).join("");
+    el.diagnosticsCheckedAt.textContent = "ยังไม่ได้ตรวจสอบ";
+    if (el.checkDiagnosticsBtn) el.checkDiagnosticsBtn.textContent = "ตรวจสอบระบบ";
+    return;
+  }
+  const overall = diagnosticStatusLabel(data.overallStatus);
+  el.diagnosticsOverall.textContent = `สถานะรวม: ${overall}`;
+  el.diagnosticsOverall.className = `diagnosticsOverall ${diagnosticTone(data.overallStatus)}`;
+  const checks = [
+    ["SmartRecord server", data.checks?.server],
+    ["OCR service", data.checks?.ocr],
+    ["OCR configuration", data.checks?.ocrConfiguration],
+    ["OCR timeout", data.checks?.ocrTimeout]
+  ];
+  el.diagnosticsChecks.innerHTML = checks.map(([label, value]) => `
+    <div class="diagnosticsCheck ${escapeHtml(diagnosticTone(value?.status))}">
+      <b>${escapeHtml(label)}</b><span>${escapeHtml(value?.message || "ตรวจสอบไม่สำเร็จ")}</span>
+    </div>
+  `).join("");
+  el.diagnosticsCheckedAt.textContent = data.checkedAt ? `ตรวจล่าสุด ${formatDateTime(data.checkedAt)}` : "ตรวจสอบไม่สำเร็จ";
+  if (el.checkDiagnosticsBtn) el.checkDiagnosticsBtn.textContent = "ตรวจสอบอีกครั้ง";
+}
+
+async function checkSystemDiagnostics() {
+  if (el.checkDiagnosticsBtn) el.checkDiagnosticsBtn.disabled = true;
+  try {
+    const result = await api("/api/devices/diagnostics");
+    if (!result.ok || !result.data) {
+      state.diagnostics = unavailableDiagnostics();
+      return;
+    }
+    state.diagnostics = result.data;
+  } catch {
+    state.diagnostics = unavailableDiagnostics();
+  } finally {
+    renderDiagnostics();
+    if (el.checkDiagnosticsBtn) el.checkDiagnosticsBtn.disabled = false;
+  }
+}
+
+function unavailableDiagnostics() {
+  return {
+    overallStatus: "unavailable",
+    checks: {
+      server: { status: "unavailable", message: "ติดต่อ SmartRecord server ไม่สำเร็จ" },
+      ocr: { status: "unavailable", message: "ยังตรวจ OCR ไม่ได้" },
+      ocrConfiguration: { status: "unavailable", message: "ยังตรวจการตั้งค่า OCR ไม่ได้" },
+      ocrTimeout: { status: "unavailable", message: "ยังตรวจ OCR timeout ไม่ได้" }
+    }
+  };
+}
+
+function diagnosticTone(status) {
+  if (status === "ready") return "ready";
+  if (status === "unavailable") return "unavailable";
+  return "neutral";
+}
+
+function diagnosticStatusLabel(status) {
+  return {
+    ready: "พร้อมใช้งาน",
+    degraded: "พร้อมใช้งานบางส่วน",
+    unavailable: "ไม่พร้อมใช้งาน",
+    "not-configured": "ยังไม่ได้ตั้งค่า"
+  }[status] || "ยังไม่ได้ตรวจสอบ";
 }
 
 function saveBrowserPrintPreference() {
