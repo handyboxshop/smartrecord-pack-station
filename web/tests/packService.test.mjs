@@ -76,6 +76,19 @@ const orders = {
       { sku: "A", name: "Item A", qty: 2, barcode: "111" },
       { sku: "B", name: "Item B", qty: 1, barcode: "222" }
     ]
+  },
+  "SPX-2": {
+    platform: "Shopee",
+    buyer: "Second Buyer",
+    labelFile: {
+      fileName: "SPX-2-label.png",
+      relativePath: "local-nas/labels/2026-06/SPX-2-label.png",
+      importedAt: "2026-06-22T08:00:00.000Z",
+      contentType: "image/png"
+    },
+    items: [
+      { sku: "C", name: "Item C", qty: 1, barcode: "333" }
+    ]
   }
 };
 
@@ -92,6 +105,54 @@ test("server starts a pack session only for a known AWB", () => {
   assert.equal(result.data.labelFile.fileName, "SPX-1-label.png");
   assert.equal(result.data.summary.totalLineCount, 2);
   assert.equal(result.data.storageTargetId, "local-machine");
+});
+
+test("start requires AWB only and permits a new AWB when no record exists", () => {
+  const service = createService();
+
+  const missing = service.startPackSession({ awb: "   " });
+  assert.equal(missing.ok, false);
+  assert.equal(missing.code, "AWB_REQUIRED");
+  assert.equal(missing.message, "กรุณาสแกนเลข AWB");
+
+  const started = service.startPackSession({ awb: " SPX-1 " });
+  assert.equal(started.ok, true);
+  assert.equal(started.data.awb, "SPX-1");
+});
+
+test("a persisted pass record blocks a new session for the same normalized AWB", () => {
+  const service = createService({ records: [persistedRecord({ awb: " SPX-1 ", status: "pass" })] });
+
+  const result = service.startPackSession({ awb: "SPX-1" });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "AWB_ALREADY_PACKED");
+  assert.equal(result.message, "AWB นี้แพ็กไปแล้ว ไม่สามารถแพ็กซ้ำได้");
+});
+
+test("a persisted warn record blocks a new session for the same AWB", () => {
+  const service = createService({ records: [persistedRecord({ awb: "SPX-1", status: "warn" })] });
+
+  const result = service.startPackSession({ awb: "SPX-1" });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "AWB_ALREADY_PACKED");
+  assert.equal(result.message, "AWB นี้แพ็กไปแล้ว ไม่สามารถแพ็กซ้ำได้");
+});
+
+test("a second active session for the same AWB is blocked while a different AWB may start", () => {
+  const service = createService();
+  const first = service.startPackSession({ awb: "SPX-1" });
+
+  const duplicate = service.startPackSession({ awb: "SPX-1" });
+  const different = service.startPackSession({ awb: "SPX-2" });
+
+  assert.equal(first.ok, true);
+  assert.equal(duplicate.ok, false);
+  assert.equal(duplicate.code, "AWB_PACK_IN_PROGRESS");
+  assert.equal(duplicate.message, "AWB นี้กำลังอยู่ระหว่างการแพ็ก");
+  assert.equal(different.ok, true);
+  assert.equal(different.data.awb, "SPX-2");
 });
 
 test("pack session requires a shipping label before scanning AWB when configured", () => {
@@ -122,7 +183,7 @@ test("pack session uses the selected platform before scanning", () => {
 });
 
 test("pack session normalizes imported TikTok platform labels", () => {
-  const service = createPackService({
+  const serviceOptions = {
     config: structuredClone(baseConfig),
     orders: {
       "TT-OCR-1": {
@@ -139,10 +200,14 @@ test("pack session normalizes imported TikTok platform labels", () => {
     },
     idFactory: () => "id-tiktok",
     now: () => new Date(Date.UTC(2026, 5, 22, 8, 0, 0))
-  });
+  };
 
-  const fromOrder = service.startPackSession({ awb: "TT-OCR-1" });
-  const fromClient = service.startPackSession({ awb: "TT-OCR-1", platform: "tiktok" });
+  const fromOrder = createPackService(serviceOptions).startPackSession({ awb: "TT-OCR-1" });
+  const fromClient = createPackService({
+    ...serviceOptions,
+    config: structuredClone(baseConfig),
+    orders: structuredClone(serviceOptions.orders)
+  }).startPackSession({ awb: "TT-OCR-1", platform: "tiktok" });
 
   assert.equal(fromOrder.ok, true);
   assert.equal(fromOrder.data.platform, "Tiktok");
@@ -178,7 +243,7 @@ test("pack session supports local cloud sync storage target", () => {
   assert.equal(result.data.record.storage.provider, "cloud-sync");
 });
 
-test("scan events update quantities and reject over-scan", () => {
+test("product scanning accepts product barcode or SKU and rejects over-scan", () => {
   const service = createService();
   const session = service.startPackSession({ awb: "SPX-1" }).data;
 
@@ -192,22 +257,40 @@ test("scan events update quantities and reject over-scan", () => {
   assert.equal(overScan.code, "ITEM_ALREADY_COMPLETE");
 });
 
-test("rescanning AWB requests close, and server refuses incomplete close without reason", () => {
+test("rescanning AWB with zero scanned items is blocked immediately", () => {
+  const service = createService();
+  const session = service.startPackSession({ awb: "SPX-1" }).data;
+
+  const result = service.scanCode({ sessionId: session.id, code: "SPX-1" });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "AWB_RESCAN_BLOCKED");
+  assert.equal(result.data.session.status, "packing");
+  assert.equal(result.data.session.summary.scannedQty, 0);
+  assert.equal(result.data.missingItems.length, 2);
+  assert.equal(service.listRecords().length, 0);
+});
+
+test("rescanning AWB after partial scanning is blocked and force cannot close missing items", () => {
   const service = createService();
   const session = service.startPackSession({ awb: "SPX-1" }).data;
   service.scanCode({ sessionId: session.id, code: "111" });
 
-  const awbClose = service.scanCode({ sessionId: session.id, code: "SPX-1" });
-  assert.equal(awbClose.ok, false);
-  assert.equal(awbClose.code, "MISSING_ITEMS");
+  const awbRescan = service.scanCode({ sessionId: session.id, code: "SPX-1" });
+  assert.equal(awbRescan.ok, false);
+  assert.equal(awbRescan.code, "AWB_RESCAN_BLOCKED");
+  assert.equal(awbRescan.data.session.summary.scannedQty, 1);
 
-  const noForce = service.closePackSession({ sessionId: session.id });
-  assert.equal(noForce.ok, false);
-  assert.equal(noForce.code, "MISSING_ITEMS");
-
-  const missingReason = service.closePackSession({ sessionId: session.id, force: true });
-  assert.equal(missingReason.ok, false);
-  assert.equal(missingReason.code, "FORCE_CLOSE_REASON_REQUIRED");
+  const forcedClose = service.closePackSession({
+    sessionId: session.id,
+    force: true,
+    reason: "สินค้าขาด"
+  });
+  assert.equal(forcedClose.ok, false);
+  assert.equal(forcedClose.code, "MISSING_ITEMS");
+  assert.equal(forcedClose.data.status, "packing");
+  assert.equal(forcedClose.data.summary.scannedQty, 1);
+  assert.equal(service.listRecords().length, 0);
 });
 
 test("AWB can act as item barcode first, then rescanning the same AWB requests close", () => {
@@ -261,20 +344,21 @@ test("complete session creates a pass record after all items are scanned", () =>
   assert.equal(service.listRecords().length, 1);
 });
 
-test("force close with a reason creates a warn record", () => {
+test("rescanning AWB after all item quantities are complete follows the normal close flow", () => {
   const service = createService();
   const session = service.startPackSession({ awb: "SPX-1" }).data;
   service.scanCode({ sessionId: session.id, code: "111" });
+  service.scanCode({ sessionId: session.id, code: "111" });
+  service.scanCode({ sessionId: session.id, code: "222" });
 
-  const result = service.closePackSession({
-    sessionId: session.id,
-    force: true,
-    reason: "สินค้าขาด"
-  });
+  const closeRequested = service.scanCode({ sessionId: session.id, code: "SPX-1" });
+  assert.equal(closeRequested.ok, true);
+  assert.equal(closeRequested.data.closeRequested, true);
+  assert.equal(closeRequested.data.session.status, "packing");
 
+  const result = service.closePackSession({ sessionId: session.id });
   assert.equal(result.ok, true);
-  assert.equal(result.data.record.status, "warn");
-  assert.equal(result.data.record.forceCloseReason, "สินค้าขาด");
+  assert.equal(result.data.record.status, "pass");
 });
 
 test("video metadata can be attached to a completed record", () => {
@@ -372,12 +456,22 @@ test("pack service with null records and seed disabled starts empty", () => {
 });
 
 
-function createService() {
+function persistedRecord({ awb, status }) {
+  return {
+    id: `record-${status}`,
+    awb,
+    status,
+    storage: {}
+  };
+}
+
+function createService({ records = null } = {}) {
   let id = 0;
   let tick = 0;
   return createPackService({
     config: structuredClone(baseConfig),
     orders: structuredClone(orders),
+    records: records === null ? null : structuredClone(records),
     idFactory: () => `id-${++id}`,
     now: () => new Date(Date.UTC(2026, 5, 22, 8, 0, tick++))
   });

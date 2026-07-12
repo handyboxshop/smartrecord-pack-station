@@ -11,8 +11,15 @@ export function createPackService({ config, orders, records: initialRecords, now
   const nextId = idFactory ?? (() => crypto.randomUUID());
 
   function startPackSession({ awb, platform, employeeId, stationId, storageTargetId } = {}) {
-    const cleanAwb = String(awb ?? "").trim();
-    if (!cleanAwb) return fail("AWB_REQUIRED", "กรุณาสแกนเลข AWB หรือเลขออเดอร์");
+    const cleanAwb = normalizeAwb(awb);
+    if (!cleanAwb) return fail("AWB_REQUIRED", "กรุณาสแกนเลข AWB");
+
+    if (records.some((record) => normalizeAwb(record?.awb) === cleanAwb)) {
+      return fail("AWB_ALREADY_PACKED", "AWB นี้แพ็กไปแล้ว ไม่สามารถแพ็กซ้ำได้");
+    }
+    if ([...sessions.values()].some((session) => session.status === "packing" && session.awb === cleanAwb)) {
+      return fail("AWB_PACK_IN_PROGRESS", "AWB นี้กำลังอยู่ระหว่างการแพ็ก");
+    }
 
     const order = orders[cleanAwb];
     if (!order) return fail("ORDER_NOT_FOUND", "ไม่พบออเดอร์นี้ในระบบ");
@@ -69,7 +76,7 @@ export function createPackService({ config, orders, records: initialRecords, now
 
     const awbMatchesOpenItem = cleanCode === session.awb && item && item.scannedQty < item.qty;
     if (config.packFlow.closeBoxByRescanningAwb && cleanCode === session.awb && !awbMatchesOpenItem) {
-      return requestClose(session);
+      return requestClose(session, config);
     }
 
     if (!item) {
@@ -87,21 +94,14 @@ export function createPackService({ config, orders, records: initialRecords, now
     return ok(toPublicSession(session, config), `บันทึกสินค้า: ${item.name}`);
   }
 
-  function closePackSession({ sessionId, force = false, reason = "" } = {}) {
+  function closePackSession({ sessionId } = {}) {
     const session = sessions.get(String(sessionId ?? ""));
     if (!session) return fail("SESSION_NOT_FOUND", "ไม่พบ pack session");
     if (session.status !== "packing") return fail("SESSION_CLOSED", "session นี้ปิดแล้ว");
 
     const summary = getSummary(session);
     if (summary.missingLineCount > 0) {
-      if (!force) return fail("MISSING_ITEMS", "สินค้ายังสแกนไม่ครบ", toPublicSession(session, config));
-      if (!config.packFlow.allowForceCloseWithMissingItems) {
-        return fail("FORCE_CLOSE_DISABLED", "ระบบไม่อนุญาตให้ปิดกล่องก่อนครบ", toPublicSession(session, config));
-      }
-      if (config.packFlow.requireReasonForForceClose && !String(reason).trim()) {
-        return fail("FORCE_CLOSE_REASON_REQUIRED", "กรุณาระบุเหตุผลในการปิดกล่องก่อนครบ", toPublicSession(session, config));
-      }
-      session.forceCloseReason = String(reason).trim();
+      return fail("MISSING_ITEMS", "สินค้ายังสแกนไม่ครบ ไม่สามารถปิดกล่องได้", toPublicSession(session, config));
     }
 
     const endedAt = now();
@@ -165,17 +165,17 @@ export function createPackService({ config, orders, records: initialRecords, now
   };
 }
 
-function requestClose(session) {
+function requestClose(session, config) {
   const summary = getSummary(session);
   if (summary.missingLineCount > 0) {
-    return fail("MISSING_ITEMS", "สินค้ายังสแกนไม่ครบ ต้องยืนยันพร้อมเหตุผลก่อนปิดกล่อง", {
-      session: toPublicSession(session),
+    return fail("AWB_RESCAN_BLOCKED", "ยังสแกนสินค้าไม่ครบ กรุณาสแกน SKU/บาร์โค้ดให้ครบก่อนยิง AWB ซ้ำเพื่อปิดกล่อง", {
+      session: toPublicSession(session, config),
       missingItems: session.items.filter((item) => item.scannedQty < item.qty)
     });
   }
   return ok({
     closeRequested: true,
-    session: toPublicSession(session)
+    session: toPublicSession(session, config)
   }, "สแกน AWB ซ้ำแล้ว พร้อมปิดกล่อง");
 }
 
@@ -288,6 +288,10 @@ function normalizePlatform(platform) {
 function hasShippingLabel(order) {
   const labelFile = order?.labelFile;
   return Boolean(labelFile && (labelFile.relativePath || labelFile.pageImageRelativePath || labelFile.fileName));
+}
+
+function normalizeAwb(value) {
+  return String(value ?? "").trim();
 }
 
 function publicLabelFile(labelFile) {

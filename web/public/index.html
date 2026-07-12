@@ -111,8 +111,8 @@
                 <b>สแกน AWB</b>
                 <span>หลังเตรียมใบปะหน้าแล้ว</span>
               </div>
-              <label for="awbInput">AWB / Order ID</label>
-              <input id="awbInput" autocomplete="off" placeholder="SPX-TH-88213940">
+              <label for="awbInput">เลข AWB เท่านั้น</label>
+              <input id="awbInput" autocomplete="off" placeholder="สแกนหรือกรอกเลข AWB เช่น SPX-TH-88213940">
               <div class="deviceSummary" id="deviceSummary">กำลังโหลด Settings...</div>
               <button type="submit">เริ่มแพค</button>
             </form>
@@ -664,19 +664,6 @@
           <button type="button" id="saveSettingsBtn">บันทึก Settings</button>
         </div>
       </div>
-    </dialog>
-
-    <dialog id="forceCloseDialog">
-      <form method="dialog" class="dialogBox">
-        <h3>ยืนยันปิดกล่องด้วย AWB ซ้ำ</h3>
-        <p id="missingText">กรุณาระบุเหตุผลก่อนปิดกล่อง</p>
-        <label for="forceReason">เหตุผล</label>
-        <textarea id="forceReason" rows="3" placeholder="เช่น ลูกค้ายกเลิกรายการ / สินค้าขาด / ตรวจนับแล้ว"></textarea>
-        <div class="dialogActions">
-          <button value="cancel" class="secondary">กลับไปสแกนต่อ</button>
-          <button value="confirm" id="confirmForceBtn">ปิดกล่อง</button>
-        </div>
-      </form>
     </dialog>
 
     <dialog id="warningDialog">

@@ -234,9 +234,6 @@ const el = {
   refreshActivityBtn: document.querySelector("#refreshActivityBtn"),
   activityCount: document.querySelector("#activityCount"),
   activityList: document.querySelector("#activityList"),
-  forceCloseDialog: document.querySelector("#forceCloseDialog"),
-  forceReason: document.querySelector("#forceReason"),
-  missingText: document.querySelector("#missingText"),
   warningDialog: document.querySelector("#warningDialog"),
   warningTitle: document.querySelector("#warningTitle"),
   warningMessage: document.querySelector("#warningMessage"),
@@ -489,10 +486,6 @@ function bindEvents() {
   el.saveSettingsBtn.addEventListener("click", saveDeviceSettings);
   el.scannerTestInput.addEventListener("input", handleScannerTest);
 
-  el.forceCloseDialog.addEventListener("close", async () => {
-    if (el.forceCloseDialog.returnValue !== "confirm") return;
-    await forceClose();
-  });
   el.importConfirmDialog.addEventListener("close", async () => {
     if (el.importConfirmDialog.returnValue !== "confirm") return;
     await importSelectedOrders();
@@ -1874,9 +1867,10 @@ async function scanCode(code) {
   });
 
   if (!result.ok) {
-    if (result.code === "MISSING_ITEMS") {
+    if (result.code === "AWB_RESCAN_BLOCKED") {
       state.session = result.data.session;
-      showForceCloseDialog(result.data.missingItems);
+      renderSession();
+      toast(result.message);
       return;
     }
     if (result.data) state.session = result.data;
@@ -1902,28 +1896,9 @@ async function closeCurrentSession() {
   });
 
   if (!result.ok) {
-    if (result.code === "MISSING_ITEMS" || result.code === "FORCE_CLOSE_REASON_REQUIRED") {
-      state.session = result.data;
-      showForceCloseDialog(state.session.items.filter((item) => item.scannedQty < item.qty));
-      return;
-    }
+    if (result.data) state.session = result.data;
+    renderSession();
     toast(result.message);
-    return;
-  }
-
-  completeSession(result.data);
-}
-
-async function forceClose() {
-  const result = await api("/api/pack/close", {
-    sessionId: state.session.id,
-    force: true,
-    reason: el.forceReason.value
-  });
-
-  if (!result.ok) {
-    toast(result.message);
-    showForceCloseDialog(state.session.items.filter((item) => item.scannedQty < item.qty));
     return;
   }
 
@@ -2181,13 +2156,6 @@ function openRecordDetail(recordId) {
     <div><span>สถานะ</span><b>${statusBadgeHtml(record.status)}</b></div>
   `;
   el.recordDetailDialog.showModal();
-}
-
-function showForceCloseDialog(missingItems) {
-  const missingSkus = missingItems.map((item) => item.sku).filter(Boolean).join(", ") || "-";
-  el.missingText.textContent = `AWB ${state.session?.awb || "-"} ยังขาด ${missingItems.length} รายการ: ${missingSkus} · ยิง AWB ซ้ำเพื่อยืนยันปิดกล่องได้`;
-  el.forceReason.value = "";
-  el.forceCloseDialog.showModal();
 }
 
 function setPackStage(stage) {

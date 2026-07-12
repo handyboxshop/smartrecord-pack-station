@@ -1362,3 +1362,19 @@ UI polish ตามรายการ Login / Topbar / Settings:
   - ต้องรัน `node --check web/server/index.mjs`
   - ต้องรัน `node --check web/public/assets/app.js`
   - ต้องรัน `npm test`
+
+## 2026-07-12 — Pack workflow requires AWB-only starts and complete item scans
+
+- what: Start Pack รับเฉพาะ AWB; AWB ที่มี pack record แล้วหรือมี session เปิดอยู่ถูกบล็อก และระหว่าง pack session การยิง AWB เดิมซ้ำก่อนสแกนสินค้าให้ครบต้องถูกบล็อกทันที
+- root cause:
+  - `packService.startPackSession()` เคยไม่มี guard สำหรับ AWB ที่บันทึกแล้วหรือ session เดียวกันที่ยังเปิดอยู่ และข้อความ validation ยังกล่าวถึงเลขออเดอร์
+  - `packService.requestClose()` เคยคืน `MISSING_ITEMS` ที่ชวนให้ client เปิด dialog force-close; `closePackSession()` เคยอนุญาตให้ bypass จำนวนสินค้าคงเหลือได้เมื่อ config เปิดและมีเหตุผล
+- correct:
+  - normalize AWB ด้วย trim เดิม แล้วเทียบค่าแบบ exact กับทุก persisted record ก่อนสร้าง session: pass/warn หรือสถานะใด ๆ ตอบ `AWB_ALREADY_PACKED`; session `packing` เดิมของ AWB เดียวกันตอบ `AWB_PACK_IN_PROGRESS`
+  - Start Pack UI และ `AWB_REQUIRED` ของ pack service ระบุ AWB เท่านั้น; client เริ่ม camera/recording เฉพาะหลัง server ตอบ start สำเร็จ
+  - domain คืน contract `AWB_RESCAN_BLOCKED` พร้อม `session` และ `missingItems` เฉพาะกรณียิง AWB ซ้ำก่อนครบ; session ยังเป็น `packing` และไม่สร้าง record
+  - `closePackSession()` ปฏิเสธ `MISSING_ITEMS` เสมอเมื่อยังมีสินค้าไม่ครบ โดยไม่ใช้ `force` หรือ `reason`
+  - browser แสดงข้อความ Thai จาก server และ render session ต่อ โดยไม่มี force-close modal, ช่องเหตุผล, หรือ request `force: true`
+  - `packFlow.allowForceCloseWithMissingItems` ใน example config ตั้งเป็น `false`; กฎ import identity คงเดิมทั้งหมด
+- verification:
+  - automated tests ครอบคลุม persisted pass/warn block, no-record start, active-session duplicate/different AWB, AWB-only UI/no camera on rejection, AWB rescan ที่ 0 ชิ้น/partial scan, attempted forced close, normal close request หลังครบ, และ absence ของ frontend modal
