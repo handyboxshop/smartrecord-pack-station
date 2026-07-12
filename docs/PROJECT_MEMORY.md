@@ -7,9 +7,13 @@
 - correct:
   - public config ส่งเฉพาะ `app.name`, `app.defaultLocale`, `app.timezone`; ไม่สร้าง branding สมมติและไม่ส่ง operational/auth metadata
   - authenticated config ใช้ valid session เป็น gate และประกอบ section แยกตาม `pack:use`, `settings:manage`, `reports:view`, `integrations:manage`, `labels:manage`, `users:manage` โดยไม่บังคับ `pack:use` เป็น global gate
+  - `pack:use` ได้ upload config แบบ pack-facing เฉพาะ `simulationSteps`, default target ID และ target `id`/`label`/`provider`/`isDefault`; NAS host, path, mount/diagnostic metadata และ settings-only fields คงอยู่เฉพาะ settings-facing config
+  - Pack client ยอมใช้ saved storage target เฉพาะ ID ที่อยู่ใน allowlist จาก server; ค่าไม่รู้จัก fallback ไป server-approved default และไม่ส่ง custom path ของเครื่องลูกข่ายใน normal Pack flow
   - frontend โหลด public config ก่อน login; โหลด full config หลัง login หรือ restore session สำเร็จเท่านั้น และรองรับ section ที่ถูกตัดออกด้วย default/optional access
+  - token ใหม่อยู่ใน memory จน authenticated config สำเร็จก่อน persist; หาก config ล้มเหลว client พยายาม logout server session แล้วล้าง token, user, config และ pack state เดิมเสมอ
   - logout ล้าง authenticated config จาก memory; refresh หลัง logout จึงเรียกเฉพาะ public config
-- Verification: `npm run check --prefix web` และ `npm test --prefix web` ผ่าน 141/141 รวม public field allowlist, missing/invalid/expired session, packer/auditor/settings/admin/owner filtering และ frontend boot ordering
+- Behavioral coverage: boot ordering, logged-out public-only boot, safe Packer target validation/start payload/upload progress, config-failure logout/cleanup, actual response payload ของ Packer/Auditor/custom report-only/settings/admin/owner
+- Verification: `npm run check --prefix web` ผ่าน และ `npm test --prefix web` ผ่าน 146/146 tests
 
 ## 2026-07-11 — OCR and System Diagnostics
 

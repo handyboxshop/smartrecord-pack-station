@@ -583,6 +583,7 @@ function getAuthenticatedConfig(source, user) {
     result.station = source.station;
     result.employees = source.employees;
     result.packFlow = source.packFlow;
+    result.upload = packUploadConfig(source);
     result.systemAssets = {
       prePackGuideImage: publicPrePackGuideImage(source)
     };
@@ -622,6 +623,19 @@ function publicPrePackGuideImage(source) {
       || "/assets/prepack-label-required.png",
     updatedAt: appSettings.systemAssets?.prePackGuideImage?.updatedAt || null,
     updatedBy: appSettings.systemAssets?.prePackGuideImage?.updatedBy || null
+  };
+}
+
+function packUploadConfig(source) {
+  return {
+    simulationSteps: source.upload.simulationSteps,
+    defaultStorageTargetId: source.upload.defaultStorageTargetId,
+    storageTargets: source.upload.storageTargets.map((target) => ({
+      id: target.id,
+      label: target.label,
+      provider: target.provider,
+      isDefault: target.isDefault
+    }))
   };
 }
 

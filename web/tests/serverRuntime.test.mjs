@@ -120,9 +120,25 @@ test("authenticated config is filtered by each user's permissions without a glob
   assert.ok(packerConfig.station);
   assert.ok(packerConfig.employees);
   assert.ok(packerConfig.packFlow);
+  assert.ok(packerConfig.systemAssets?.prePackGuideImage?.url);
+  assert.deepEqual(Object.keys(packerConfig.upload).sort(), [
+    "defaultStorageTargetId", "simulationSteps", "storageTargets"
+  ]);
+  assert.ok(packerConfig.upload.simulationSteps.length > 0);
+  assert.ok(packerConfig.upload.defaultStorageTargetId);
+  assert.ok(packerConfig.upload.storageTargets.length > 0);
+  for (const target of packerConfig.upload.storageTargets) {
+    assert.deepEqual(Object.keys(target).sort(), ["id", "isDefault", "label", "provider"]);
+  }
   assert.equal(packerConfig.reports, undefined);
   assert.equal(packerConfig.devices, undefined);
-  assert.equal(packerConfig.upload, undefined);
+  assert.equal(packerConfig.ocr, undefined);
+  for (const forbiddenField of [
+    "host", "localPath", "customPath", "mountStatus", "mountedRequired", "simulated",
+    "externalUrl", "diagnostics"
+  ]) {
+    assert.equal(JSON.stringify(packerConfig.upload).includes(`\"${forbiddenField}\"`), false);
+  }
 
   const auditor = await login(port, "auditor@test.local", "audit-password");
   const auditorConfig = await authenticatedConfig(port, auditor.token);
@@ -134,6 +150,18 @@ test("authenticated config is filtered by each user's permissions without a glob
   assert.equal(auditorConfig.upload, undefined);
   assert.equal(auditorConfig.integrations, undefined);
   assert.equal(auditorConfig.auth.roles, undefined);
+
+  const reportOnly = await login(port, "reports@test.local", "reports-password");
+  const reportOnlyConfig = await authenticatedConfig(port, reportOnly.token);
+  assert.ok(reportOnlyConfig.reports);
+  for (const forbiddenSection of [
+    "station", "employees", "packFlow", "systemAssets", "devices", "upload", "ocr",
+    "integrations", "labelPrint"
+  ]) {
+    assert.equal(reportOnlyConfig[forbiddenSection], undefined);
+  }
+  assert.equal(reportOnlyConfig.auth.roles, undefined);
+  assert.equal(reportOnlyConfig.auth.passwordPolicy, undefined);
 
   const settingsUser = await login(port, "settings@test.local", "settings-password");
   const settingsConfig = await authenticatedConfig(port, settingsUser.token);
@@ -451,7 +479,8 @@ async function createPrinterTestRuntime(storageFixture = "", ocrFixture = "", { 
     testUser("owner@test.local", "owner-password", "owner"),
     testUser("packer@test.local", "pack-password", "packer"),
     testUser("auditor@test.local", "audit-password", "auditor"),
-    testUser("settings@test.local", "settings-password", "custom", [{ moduleId: "settings", canView: true, canEdit: true }])
+    testUser("settings@test.local", "settings-password", "custom", [{ moduleId: "settings", canView: true, canEdit: true }]),
+    testUser("reports@test.local", "reports-password", "custom", [{ moduleId: "reports", canView: true, canEdit: false }])
   ];
   if (sessionTtlHours !== undefined) config.auth.session.ttlHours = sessionTtlHours;
   if (ocrCommand) config.ocr.command = ocrCommand;
@@ -496,7 +525,7 @@ async function runtimeFilesSnapshot(dir) {
 function testUser(email, password, roleId, modulePermissions) {
   const passwordSalt = `test-salt-${roleId}`;
   return {
-    id: `USR-${roleId.toUpperCase()}`,
+    id: `USR-${email.split("@")[0].toUpperCase()}`,
     email,
     name: roleId,
     roleId,
