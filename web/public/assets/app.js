@@ -3,6 +3,7 @@ import { loadBrowserPrintPreferences, saveBrowserPrintPreferences } from "./brow
 
 const state = {
   config: null,
+  publicConfig: null,
   authToken: localStorage.getItem("smartrecord.authToken") || "",
   currentUser: null,
   users: [],
@@ -260,21 +261,14 @@ boot();
 async function boot() {
   tickClock();
   setInterval(tickClock, 1000);
-  const configResult = await api("/api/config");
+  const configResult = await api("/api/config/public");
   if (!configResult.ok || !configResult.data) {
     showStartupError(configResult.message || "ไม่สามารถโหลดค่าตั้งต้นของระบบได้");
     return;
   }
-  state.config = configResult.data;
-  el.stationId.textContent = state.config.station.defaultStationId;
-  el.employeeId.textContent = state.config.employees.defaultEmployeeId;
-  applyPrePackGuideImage();
-  loadDeviceSettings();
-  renderSettingsControls();
-  renderLabelPlatformOptions();
-  clearLabelLibraryUpload();
+  state.publicConfig = configResult.data;
+  if (state.publicConfig.app?.name) document.title = state.publicConfig.app.name;
   bindEvents();
-  renderConnectCards();
   await restoreSession();
 }
 
@@ -479,6 +473,7 @@ async function restoreSession() {
     return;
   }
   state.currentUser = result.data.user;
+  if (!await loadAuthenticatedConfig()) return;
   await enterApp();
 }
 
@@ -499,6 +494,7 @@ async function login(event) {
     state.currentUser = result.data.user;
     localStorage.setItem("smartrecord.authToken", state.authToken);
     el.loginPassword.value = "";
+    if (!await loadAuthenticatedConfig()) return;
     await enterApp();
     toast(`ยินดีต้อนรับ ${state.currentUser.name}`);
   } finally {
@@ -511,11 +507,45 @@ async function logout() {
   localStorage.removeItem("smartrecord.authToken");
   state.authToken = "";
   state.currentUser = null;
+  state.config = null;
   state.session = null;
   state.record = null;
   stopCamera();
   el.userDropdown?.classList.add("hidden");
   showLogin("ออกจากระบบแล้ว");
+}
+
+async function loadAuthenticatedConfig() {
+  const result = await api("/api/config");
+  if (!result.ok || !result.data) {
+    localStorage.removeItem("smartrecord.authToken");
+    state.authToken = "";
+    state.currentUser = null;
+    state.config = null;
+    showLogin(result.message || "Session หมดอายุ กรุณา login ใหม่");
+    showLoginError(result.message || "ไม่สามารถโหลดค่าระบบสำหรับบัญชีนี้ได้");
+    return false;
+  }
+  state.config = result.data;
+  initializeAuthenticatedConfig();
+  return true;
+}
+
+function initializeAuthenticatedConfig() {
+  el.stationId.textContent = state.config?.station?.defaultStationId || "-";
+  el.employeeId.textContent = state.config?.employees?.defaultEmployeeId || state.currentUser?.employeeId || "-";
+  applyPrePackGuideImage();
+  if (can("settings:manage")) {
+    loadDeviceSettings();
+    renderSettingsControls();
+  } else {
+    deviceSettings = defaultDeviceSettings();
+  }
+  if (can("labels:manage")) {
+    renderLabelPlatformOptions();
+    clearLabelLibraryUpload();
+  }
+  if (can("integrations:manage")) renderConnectCards();
 }
 
 async function enterApp() {
@@ -1458,13 +1488,13 @@ function productSkuText(productName = "", sku = "") {
 
 function renderUserFormOptions() {
   if (!can("users:manage")) return;
-  el.userRoleSelect.innerHTML = state.config.auth.roles.map((role) => `
+  el.userRoleSelect.innerHTML = (state.config?.auth?.roles || []).map((role) => `
     <option value="${escapeHtml(role.id)}">${escapeHtml(role.label)}</option>
   `).join("");
-  el.employeeNameOptions.innerHTML = state.config.employees.list.map((employee) => `
+  el.employeeNameOptions.innerHTML = (state.config?.employees?.list || []).map((employee) => `
     <option value="${escapeHtml(employee.name)}">${escapeHtml(employee.id)}</option>
   `).join("");
-  el.employeeIdOptions.innerHTML = state.config.employees.list.map((employee) => `
+  el.employeeIdOptions.innerHTML = (state.config?.employees?.list || []).map((employee) => `
     <option value="${escapeHtml(employee.id)}">${escapeHtml(employee.name)}</option>
   `).join("");
   renderPermissionMatrix(selectedRole()?.modulePermissions || [], true);
@@ -1571,7 +1601,7 @@ async function deleteUser(email) {
 }
 
 function renderPermissionMatrix(modulePermissions = [], readOnly = false) {
-  const permissions = state.config.auth.modules.map((module) => {
+  const permissions = (state.config?.auth?.modules || []).map((module) => {
     const current = modulePermissions.find((item) => item.moduleId === module.id) || {};
     return { module, canView: Boolean(current.canView), canEdit: Boolean(current.canEdit) };
   });
@@ -1610,18 +1640,18 @@ function collectPermissionMatrix() {
 }
 
 function selectedRole() {
-  return state.config.auth.roles.find((role) => role.id === el.userRoleSelect.value);
+  return (state.config?.auth?.roles || []).find((role) => role.id === el.userRoleSelect.value);
 }
 
 function syncEmployeeFromName() {
   const value = el.userEmployeeNameInput.value.trim();
-  const employee = state.config.employees.list.find((item) => item.name === value);
+  const employee = (state.config?.employees?.list || []).find((item) => item.name === value);
   if (employee) el.userEmployeeIdInput.value = employee.id;
 }
 
 function syncEmployeeFromId() {
   const value = el.userEmployeeIdInput.value.trim();
-  const employee = state.config.employees.list.find((item) => item.id === value);
+  const employee = (state.config?.employees?.list || []).find((item) => item.id === value);
   if (employee) el.userEmployeeNameInput.value = employee.name;
 }
 
@@ -1659,7 +1689,7 @@ function permissionSummary(modulePermissions = []) {
   return modulePermissions
     .filter((permission) => permission.canView)
     .map((permission) => {
-      const module = state.config.auth.modules.find((item) => item.id === permission.moduleId);
+      const module = (state.config?.auth?.modules || []).find((item) => item.id === permission.moduleId);
       return `${module?.label || permission.moduleId}${permission.canEdit ? " (แก้ไข)" : " (ดู)"}`;
     })
     .join(", ") || "ไม่มีสิทธิ์";
@@ -1674,7 +1704,7 @@ function formatUserEmployee(user) {
 
 function employeeNameForId(employeeId) {
   if (!employeeId) return "";
-  return state.config.employees.list.find((employee) => employee.id === employeeId)?.name || "";
+  return (state.config?.employees?.list || []).find((employee) => employee.id === employeeId)?.name || "";
 }
 
 function renderAuditLogs() {
@@ -1725,8 +1755,8 @@ function renderActivityLogs() {
 async function startSession(awb) {
   const result = await api("/api/pack/start", {
     awb,
-    employeeId: state.config.employees.defaultEmployeeId,
-    stationId: state.config.station.defaultStationId,
+    employeeId: state.config?.employees?.defaultEmployeeId || state.currentUser?.employeeId || "",
+    stationId: state.config?.station?.defaultStationId || "",
     storageTargetId: deviceSettings.storageTargetId
   });
 
@@ -2082,7 +2112,7 @@ function setPackStage(stage) {
 }
 
 async function runUploadSimulation(video) {
-  const steps = state.config.upload.simulationSteps;
+  const steps = state.config?.upload?.simulationSteps || [];
   el.uploadOrderLine.textContent = video
     ? `AWB: ${state.record.awb} · อัปโหลดไฟล์ ${video.fileName} ไปยัง ${video.storageLabel} แล้ว`
     : `AWB: ${state.record.awb} · ${missingVideoReason()} จึงบันทึกเฉพาะข้อมูลออเดอร์`;
@@ -2244,13 +2274,23 @@ function resetRecordingDiagnostics() {
 
 function loadDeviceSettings() {
   const saved = JSON.parse(localStorage.getItem("smartrecord.deviceSettings") || "{}");
-  const targets = state.config.upload.storageTargets || [];
-  const defaultStorageTargetId = state.config.upload.defaultStorageTargetId || targets.find((target) => target.isDefault)?.id || targets[0]?.id || "";
+  const targets = state.config?.upload?.storageTargets || [];
+  const defaultStorageTargetId = state.config?.upload?.defaultStorageTargetId || targets.find((target) => target.isDefault)?.id || targets[0]?.id || "";
   deviceSettings = {
     storageTargetId: saved.storageTargetId || defaultStorageTargetId,
     customStoragePath: saved.customStoragePath || "",
-    cameraDeviceId: saved.cameraDeviceId || state.config.devices.camera.defaultDeviceId,
-    scannerMode: saved.scannerMode || state.config.devices.barcodeScanner.defaultMode
+    cameraDeviceId: saved.cameraDeviceId || state.config?.devices?.camera?.defaultDeviceId || "",
+    scannerMode: saved.scannerMode || state.config?.devices?.barcodeScanner?.defaultMode || ""
+  };
+}
+
+function defaultDeviceSettings() {
+  const saved = JSON.parse(localStorage.getItem("smartrecord.deviceSettings") || "{}");
+  return {
+    storageTargetId: "",
+    customStoragePath: saved.customStoragePath || "",
+    cameraDeviceId: saved.cameraDeviceId || "",
+    scannerMode: saved.scannerMode || ""
   };
 }
 
@@ -2259,7 +2299,7 @@ function renderSettingsControls() {
   updateCustomPathUI();
   el.customStoragePathInput.value = deviceSettings.customStoragePath;
 
-  el.cameraSelect.innerHTML = state.config.devices.camera.options.map((camera) => `
+  el.cameraSelect.innerHTML = (state.config?.devices?.camera?.options || []).map((camera) => `
     <option value="${escapeHtml(camera.id)}">${escapeHtml(camera.label)}</option>
   `).join("");
   el.cameraSelect.value = deviceSettings.cameraDeviceId;
@@ -2267,7 +2307,7 @@ function renderSettingsControls() {
 
   el.browserPrintPaperSize.value = browserPrintPreferences.paperSize;
 
-  el.scannerModeSelect.innerHTML = state.config.devices.barcodeScanner.modes.map((mode) => `
+  el.scannerModeSelect.innerHTML = (state.config?.devices?.barcodeScanner?.modes || []).map((mode) => `
     <option value="${escapeHtml(mode.id)}">${escapeHtml(mode.label)}</option>
   `).join("");
   el.scannerModeSelect.value = deviceSettings.scannerMode;
@@ -2284,7 +2324,7 @@ function applyPrePackGuideImage() {
 
 function renderPrePackImageSettings() {
   applyPrePackGuideImage();
-  const config = state.config.systemAssets?.prePackGuideImage || {};
+  const config = state.config?.systemAssets?.prePackGuideImage || {};
   const maxMb = config.maxImageSizeMb || 5;
   const updatedAt = config.updatedAt ? ` · อัปเดตล่าสุด ${formatDateTime(config.updatedAt)}` : "";
   if (el.prePackImageStatus) {
@@ -2295,7 +2335,7 @@ function renderPrePackImageSettings() {
 }
 
 function renderStorageCards() {
-  const targets = state.config.upload.storageTargets || [];
+  const targets = state.config?.upload?.storageTargets || [];
   const icons = { nas: "🖧", local: "💻", "cloud-sync": "☁" };
   const providerNames = { nas: "NAS", local: "เครื่องนี้", "cloud-sync": "Cloud Sync" };
   el.storageCardGroup.innerHTML = targets.map((target) => {
@@ -2376,9 +2416,9 @@ async function previewSelectedPrePackImage() {
     setPrePackImageStatus("รองรับเฉพาะ PNG, JPG หรือ WebP", true);
     return;
   }
-  const maxBytes = (state.config.systemAssets?.prePackGuideImage?.maxImageSizeMb || 5) * 1024 * 1024;
+  const maxBytes = (state.config?.systemAssets?.prePackGuideImage?.maxImageSizeMb || 5) * 1024 * 1024;
   if (file.size > maxBytes) {
-    setPrePackImageStatus(`รูปต้องไม่เกิน ${state.config.systemAssets.prePackGuideImage.maxImageSizeMb} MB`, true);
+    setPrePackImageStatus(`รูปต้องไม่เกิน ${state.config?.systemAssets?.prePackGuideImage?.maxImageSizeMb || 5} MB`, true);
     return;
   }
   const dimensions = await readImageSize(file).catch(() => null);
@@ -2415,7 +2455,7 @@ async function uploadPrePackImage() {
       return;
     }
     state.config.systemAssets.prePackGuideImage = {
-      ...state.config.systemAssets.prePackGuideImage,
+      ...(state.config?.systemAssets?.prePackGuideImage || {}),
       ...result.data
     };
     if (el.prePackImageInput) el.prePackImageInput.value = "";
@@ -2438,7 +2478,7 @@ function canManageSystemAssets() {
 }
 
 function isAcceptedPrePackImageType(type) {
-  const accepted = state.config.systemAssets?.prePackGuideImage?.acceptedImageTypes || ["image/png", "image/jpeg", "image/webp"];
+  const accepted = state.config?.systemAssets?.prePackGuideImage?.acceptedImageTypes || ["image/png", "image/jpeg", "image/webp"];
   return accepted.includes(type);
 }
 
@@ -2463,7 +2503,7 @@ function updateDeviceSummary() {
   const scanner = selectedScannerMode();
   const employeeName = state.currentUser
     ? state.currentUser.employeeName || employeeNameForId(state.currentUser.employeeId)
-    : state.config.employees.defaultEmployeeName;
+    : state.config?.employees?.defaultEmployeeName;
   const employeeLabel = employeeName || "ยังไม่ผูกพนักงาน";
   const cameraConnected = deviceConnection.cameraPermission === "granted" || deviceConnection.cameraTestOk || Boolean(mediaStream) || Boolean(settingsCameraStream);
   const scannerConnected = Boolean(scanner);
@@ -2690,7 +2730,7 @@ async function refreshCameraDevices() {
   try {
     const devices = await navigator.mediaDevices.enumerateDevices();
     const videoInputs = devices.filter((device) => device.kind === "videoinput" && device.deviceId);
-    const configOptions = state.config.devices.camera.options || [];
+    const configOptions = state.config?.devices?.camera?.options || [];
     const detectedOptions = videoInputs.map((device, index) => ({
       id: device.deviceId,
       label: device.label || `กล้อง ${index + 1}`
@@ -2765,7 +2805,7 @@ function handleScannerTest() {
 }
 
 function selectedStorageTarget() {
-  return (state.config.upload.storageTargets || []).find((target) => target.id === deviceSettings.storageTargetId);
+  return (state.config?.upload?.storageTargets || []).find((target) => target.id === deviceSettings?.storageTargetId);
 }
 
 function storageProviderLabel(provider = "") {
@@ -2867,11 +2907,11 @@ function storageVerificationFromResult(result) {
 }
 
 function selectedScannerMode() {
-  return state.config.devices.barcodeScanner.modes.find((mode) => mode.id === deviceSettings.scannerMode);
+  return (state.config?.devices?.barcodeScanner?.modes || []).find((mode) => mode.id === deviceSettings?.scannerMode);
 }
 
 function cameraLabel(cameraDeviceId) {
-  return state.config.devices.camera.options.find((camera) => camera.id === cameraDeviceId)?.label || cameraDeviceId;
+  return (state.config?.devices?.camera?.options || []).find((camera) => camera.id === cameraDeviceId)?.label || cameraDeviceId;
 }
 
 function stopRecordingBlob() {

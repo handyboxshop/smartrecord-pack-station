@@ -55,6 +55,110 @@ test("auth-required API returns JSON contract for expired or missing session", a
   assert.equal(response.body.message, "Please login again");
 });
 
+test("public config exposes only minimal login-safe app fields", async (t) => {
+  const port = nextPort();
+  const server = await startServer(port);
+  t.after(() => stopServer(server));
+
+  const response = await requestJson(port, "/api/config/public");
+
+  assert.equal(response.status, 200);
+  assert.equal(response.body.ok, true);
+  assert.deepEqual(response.body.data, {
+    app: {
+      name: "SmartRecord Pack Station",
+      defaultLocale: "th-TH",
+      timezone: "Asia/Bangkok"
+    }
+  });
+  for (const forbiddenKey of [
+    "branding", "employees", "station", "systemAssets", "auth", "devices", "upload",
+    "reports", "integrations", "ocr", "labelPrint", "packFlow"
+  ]) {
+    assert.equal(forbiddenKey in response.body.data, false, `public config must omit ${forbiddenKey}`);
+  }
+});
+
+test("authenticated config rejects missing, invalid, and expired sessions", async (t) => {
+  const port = nextPort();
+  const runtime = await createPrinterTestRuntime("", "", { sessionTtlHours: -1 });
+  const server = await startServer(port, runtime.env);
+  t.after(async () => {
+    await stopServer(server);
+    await fs.rm(runtime.dir, { recursive: true, force: true });
+  });
+
+  const missing = await requestJson(port, "/api/config");
+  assert.equal(missing.status, 401);
+  assert.equal(missing.body.code, "AUTH_REQUIRED");
+
+  const invalid = await requestJson(port, "/api/config", {
+    headers: { Authorization: "Bearer invalid-session-token" }
+  });
+  assert.equal(invalid.status, 401);
+  assert.equal(invalid.body.code, "AUTH_REQUIRED");
+
+  const expiredSession = await login(port, "packer@test.local", "pack-password");
+  const expired = await requestJson(port, "/api/config", {
+    headers: { Authorization: `Bearer ${expiredSession.token}` }
+  });
+  assert.equal(expired.status, 401);
+  assert.equal(expired.body.code, "SESSION_EXPIRED");
+});
+
+test("authenticated config is filtered by each user's permissions without a global pack gate", async (t) => {
+  const port = nextPort();
+  const runtime = await createPrinterTestRuntime();
+  const server = await startServer(port, runtime.env);
+  t.after(async () => {
+    await stopServer(server);
+    await fs.rm(runtime.dir, { recursive: true, force: true });
+  });
+
+  const packer = await login(port, "packer@test.local", "pack-password");
+  const packerConfig = await authenticatedConfig(port, packer.token);
+  assert.ok(packerConfig.station);
+  assert.ok(packerConfig.employees);
+  assert.ok(packerConfig.packFlow);
+  assert.equal(packerConfig.reports, undefined);
+  assert.equal(packerConfig.devices, undefined);
+  assert.equal(packerConfig.upload, undefined);
+
+  const auditor = await login(port, "auditor@test.local", "audit-password");
+  const auditorConfig = await authenticatedConfig(port, auditor.token);
+  assert.ok(auditorConfig.reports);
+  assert.equal(auditorConfig.station, undefined);
+  assert.equal(auditorConfig.employees, undefined);
+  assert.equal(auditorConfig.packFlow, undefined);
+  assert.equal(auditorConfig.devices, undefined);
+  assert.equal(auditorConfig.upload, undefined);
+  assert.equal(auditorConfig.integrations, undefined);
+  assert.equal(auditorConfig.auth.roles, undefined);
+
+  const settingsUser = await login(port, "settings@test.local", "settings-password");
+  const settingsConfig = await authenticatedConfig(port, settingsUser.token);
+  assert.ok(settingsConfig.devices);
+  assert.ok(settingsConfig.upload);
+  assert.ok(settingsConfig.ocr);
+  assert.equal(settingsConfig.reports, undefined);
+  assert.equal(settingsConfig.integrations, undefined);
+  assert.equal(settingsConfig.auth.roles, undefined);
+
+  const admin = await login(port, "admin@test.local", "admin-password");
+  const adminConfig = await authenticatedConfig(port, admin.token);
+  assert.ok(adminConfig.auth.roles);
+  assert.deepEqual(adminConfig.auth.passwordPolicy, { minLength: 8 });
+
+  const owner = await login(port, "owner@test.local", "owner-password");
+  const ownerConfig = await authenticatedConfig(port, owner.token);
+  assert.ok(ownerConfig.station);
+  assert.ok(ownerConfig.reports);
+  assert.ok(ownerConfig.devices);
+  assert.ok(ownerConfig.integrations);
+  assert.ok(ownerConfig.labelPrint);
+  assert.ok(ownerConfig.auth.roles);
+});
+
 test("NAS/CUPS printer route requires settings:manage", async (t) => {
   const port = nextPort();
   const runtime = await createPrinterTestRuntime();
@@ -199,9 +303,11 @@ test("storage verification enforces settings:manage and returns only safe status
       assert.doesNotMatch(payload, new RegExp(serializedFixturePath));
       assert.doesNotMatch(payload, /storageRoot|actualWritePath|resolvedLocalPath|errno|stack|process\.cwd|node_modules/i);
 
-      const publicConfig = await requestJson(port, "/api/config");
-      assert.equal(publicConfig.status, 200);
-      assert.doesNotMatch(JSON.stringify(publicConfig.body.data.upload.storageTargets), /localPath|resolvedLocalPath|actualWritePath|storageRoot/i);
+      const authenticatedConfigResponse = await requestJson(port, "/api/config", {
+        headers: { Authorization: `Bearer ${admin.token}` }
+      });
+      assert.equal(authenticatedConfigResponse.status, 200);
+      assert.doesNotMatch(JSON.stringify(authenticatedConfigResponse.body.data.upload.storageTargets), /localPath|resolvedLocalPath|actualWritePath|storageRoot/i);
     } finally {
       await stopServer(server);
       await fs.rm(runtime.dir, { recursive: true, force: true });
@@ -328,13 +434,26 @@ async function login(port, email, password) {
   return response.body.data;
 }
 
-async function createPrinterTestRuntime(storageFixture = "", ocrFixture = "", { mode = "test", ocrCommand = "" } = {}) {
+async function authenticatedConfig(port, token) {
+  const response = await requestJson(port, "/api/config", {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  assert.equal(response.status, 200);
+  assert.equal(response.body.ok, true);
+  return response.body.data;
+}
+
+async function createPrinterTestRuntime(storageFixture = "", ocrFixture = "", { mode = "test", ocrCommand = "", sessionTtlHours } = {}) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "smartrecord-printer-test-"));
   const config = JSON.parse(await fs.readFile(configPath, "utf8"));
   config.auth.users = [
     testUser("admin@test.local", "admin-password", "admin"),
-    testUser("packer@test.local", "pack-password", "packer")
+    testUser("owner@test.local", "owner-password", "owner"),
+    testUser("packer@test.local", "pack-password", "packer"),
+    testUser("auditor@test.local", "audit-password", "auditor"),
+    testUser("settings@test.local", "settings-password", "custom", [{ moduleId: "settings", canView: true, canEdit: true }])
   ];
+  if (sessionTtlHours !== undefined) config.auth.session.ttlHours = sessionTtlHours;
   if (ocrCommand) config.ocr.command = ocrCommand;
   const runtimeConfigPath = path.join(dir, "app-config.json");
   await fs.writeFile(runtimeConfigPath, JSON.stringify(config));
@@ -374,13 +493,14 @@ async function runtimeFilesSnapshot(dir) {
   }));
 }
 
-function testUser(email, password, roleId) {
+function testUser(email, password, roleId, modulePermissions) {
   const passwordSalt = `test-salt-${roleId}`;
   return {
     id: `USR-${roleId.toUpperCase()}`,
     email,
     name: roleId,
     roleId,
+    modulePermissions,
     employeeId: null,
     active: true,
     passwordSalt,

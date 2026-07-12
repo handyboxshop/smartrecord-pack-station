@@ -1,5 +1,16 @@
 # Project Memory
 
+## 2026-07-12 — PR-H1 Public / Authenticated Config Separation
+
+- what: แยก config API เป็น `GET /api/config/public` สำหรับหน้า Login และ `GET /api/config` สำหรับ session ที่ยืนยันตัวตนแล้ว โดย authenticated config กรอง section ตาม permission ของ current user
+- root cause: หน้า Login เดิมเรียก `/api/config` แบบไม่ต้อง login ทำให้ station, employee, device, storage, NAS, integration, OCR, role และ password-policy metadata ถูกส่งก่อน authentication
+- correct:
+  - public config ส่งเฉพาะ `app.name`, `app.defaultLocale`, `app.timezone`; ไม่สร้าง branding สมมติและไม่ส่ง operational/auth metadata
+  - authenticated config ใช้ valid session เป็น gate และประกอบ section แยกตาม `pack:use`, `settings:manage`, `reports:view`, `integrations:manage`, `labels:manage`, `users:manage` โดยไม่บังคับ `pack:use` เป็น global gate
+  - frontend โหลด public config ก่อน login; โหลด full config หลัง login หรือ restore session สำเร็จเท่านั้น และรองรับ section ที่ถูกตัดออกด้วย default/optional access
+  - logout ล้าง authenticated config จาก memory; refresh หลัง logout จึงเรียกเฉพาะ public config
+- Verification: `npm run check --prefix web` และ `npm test --prefix web` ผ่าน 141/141 รวม public field allowlist, missing/invalid/expired session, packer/auditor/settings/admin/owner filtering และ frontend boot ordering
+
 ## 2026-07-11 — OCR and System Diagnostics
 
 - what: เพิ่ม `GET /api/devices/diagnostics` สำหรับ Device Settings และส่วน System Diagnostics ใน UI เพื่อให้ตรวจ SmartRecord server, OCR runtime, การตั้งค่า OCR และ OCR preprocessing timeout ได้แบบอ่านอย่างเดียว
