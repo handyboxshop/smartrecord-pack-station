@@ -8,6 +8,7 @@ import {
   runConfigBoot
 } from "./configLifecycle.js";
 import { createAuthenticatedRuntimeCleanup } from "./authRuntimeCleanup.js";
+import { settleAuthenticatedCameraRequest } from "./cameraLifecycle.js";
 
 const state = {
   config: null,
@@ -2248,37 +2249,39 @@ async function startCamera() {
   el.recTimer.textContent = "00:00";
   const requestGeneration = authenticatedRuntime.getGeneration();
   const requestToken = state.authToken;
-  try {
-    const stream = await openCameraStream(deviceSettings.cameraDeviceId);
-    if (!authenticatedRuntime.isCurrent(requestGeneration, requestToken)) {
-      stream.getTracks().forEach((track) => track.stop());
-      return;
+  await settleAuthenticatedCameraRequest({
+    openCameraStream: () => openCameraStream(deviceSettings.cameraDeviceId),
+    isCurrent: () => authenticatedRuntime.isCurrent(requestGeneration, requestToken),
+    onStream: (stream) => {
+      mediaStream = stream;
+      recordingDiagnostics.cameraStarted = true;
+      deviceConnection.cameraTestOk = true;
+      el.webcamVideo.srcObject = mediaStream;
+      el.noCamMsg.classList.add("hidden");
+      el.recBadge.classList.add("show");
+      startMediaRecorder(mediaStream);
+      updateDeviceSummary();
+    },
+    onError: (error) => {
+      recordingDiagnostics.cameraError = cameraErrorMessage(error);
+      deviceConnection.cameraTestOk = false;
+      el.webcamVideo.srcObject = null;
+      el.noCamMsg.classList.remove("hidden");
+      el.noCamMsg.textContent = cameraErrorMessage(error);
+      el.recBadge.classList.remove("show");
+      updateDeviceSummary();
+      toast(cameraErrorMessage(error));
+    },
+    startTimer: () => {
+      recTimerId = setInterval(() => {
+        if (!authenticatedRuntime.isCurrent(requestGeneration, requestToken)) return;
+        recSeconds += 1;
+        const min = String(Math.floor(recSeconds / 60)).padStart(2, "0");
+        const sec = String(recSeconds % 60).padStart(2, "0");
+        el.recTimer.textContent = `${min}:${sec}`;
+      }, 1000);
     }
-    mediaStream = stream;
-    recordingDiagnostics.cameraStarted = true;
-    deviceConnection.cameraTestOk = true;
-    el.webcamVideo.srcObject = mediaStream;
-    el.noCamMsg.classList.add("hidden");
-    el.recBadge.classList.add("show");
-    startMediaRecorder(mediaStream);
-    updateDeviceSummary();
-  } catch (error) {
-    recordingDiagnostics.cameraError = cameraErrorMessage(error);
-    deviceConnection.cameraTestOk = false;
-    el.webcamVideo.srcObject = null;
-    el.noCamMsg.classList.remove("hidden");
-    el.noCamMsg.textContent = cameraErrorMessage(error);
-    el.recBadge.classList.remove("show");
-    updateDeviceSummary();
-    toast(cameraErrorMessage(error));
-  }
-  recTimerId = setInterval(() => {
-    if (!authenticatedRuntime.isCurrent(requestGeneration, requestToken)) return;
-    recSeconds += 1;
-    const min = String(Math.floor(recSeconds / 60)).padStart(2, "0");
-    const sec = String(recSeconds % 60).padStart(2, "0");
-    el.recTimer.textContent = `${min}:${sec}`;
-  }, 1000);
+  });
 }
 
 function stopCamera() {
