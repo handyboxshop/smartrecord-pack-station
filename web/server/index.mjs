@@ -596,6 +596,11 @@ function getAuthenticatedConfig(source, user) {
       languages: source.ocr?.languages,
       maxLabelFileSizeMb: source.ocr?.maxLabelFileSizeMb
     };
+    if (["owner", "admin"].includes(user.roleId)) {
+      result.systemAssets = {
+        prePackGuideImage: settingsPrePackGuideImage(source)
+      };
+    }
   }
   if (can("reports:view")) result.reports = source.reports;
   if (can("integrations:manage")) result.integrations = source.integrations;
@@ -617,12 +622,27 @@ function publicAppConfig(source) {
 
 function publicPrePackGuideImage(source) {
   return {
-    ...(source.systemAssets?.prePackGuideImage || {}),
     url: appSettings.systemAssets?.prePackGuideImage?.url
       || source.systemAssets?.prePackGuideImage?.defaultUrl
-      || "/assets/prepack-label-required.png",
-    updatedAt: appSettings.systemAssets?.prePackGuideImage?.updatedAt || null,
-    updatedBy: appSettings.systemAssets?.prePackGuideImage?.updatedBy || null
+      || "/assets/prepack-label-required.png"
+  };
+}
+
+function settingsPrePackGuideImage(source) {
+  const configured = source.systemAssets?.prePackGuideImage || {};
+  const saved = appSettings.systemAssets?.prePackGuideImage || {};
+  return {
+    defaultUrl: configured.defaultUrl,
+    acceptedImageTypes: configured.acceptedImageTypes,
+    maxImageSizeMb: configured.maxImageSizeMb,
+    url: saved.url || configured.defaultUrl || "/assets/prepack-label-required.png",
+    updatedAt: saved.updatedAt || null,
+    updatedBy: saved.updatedBy || null,
+    fileName: saved.fileName || null,
+    bytes: saved.bytes || null,
+    contentType: saved.contentType || null,
+    width: saved.width || null,
+    height: saved.height || null
   };
 }
 

@@ -7,6 +7,7 @@ import {
   resolvePackDeviceSettings,
   runConfigBoot
 } from "./configLifecycle.js";
+import { createAuthenticatedRuntimeCleanup } from "./authRuntimeCleanup.js";
 
 const state = {
   config: null,
@@ -262,6 +263,31 @@ const deviceConnection = {
   cameraPermission: "unknown",
   cameraTestOk: false
 };
+const authenticatedRuntime = createAuthenticatedRuntimeCleanup({
+  state,
+  storage: localStorage,
+  getMediaResources: () => ({
+    mediaRecorder,
+    streams: [mediaStream, settingsCameraStream],
+    recTimerId
+  }),
+  resetMediaResources: (resources) => {
+    mediaRecorder = resources.mediaRecorder;
+    mediaStream = resources.mediaStream;
+    settingsCameraStream = resources.settingsCameraStream;
+    recordedChunks = resources.recordedChunks;
+    recordingDiagnostics = resources.recordingDiagnostics;
+    recTimerId = resources.recTimerId;
+    recSeconds = resources.recSeconds;
+    deviceSettings = null;
+    storageVerification = { status: "not-checked", message: "ยังไม่ได้ตรวจสอบปลายทางบน SmartRecord server" };
+    labelImageDataUrl = "";
+    deviceConnection.cameraPermission = "unknown";
+    deviceConnection.cameraTestOk = false;
+  },
+  clearPermissionSensitiveDom,
+  resetRecordingDiagnostics
+});
 
 boot();
 
@@ -479,7 +505,7 @@ async function restoreSession() {
   }
   const result = await api("/api/auth/me");
   if (!result.ok) {
-    clearAuthenticatedClientState();
+    clearAuthenticatedRuntime();
     showLogin(result.message || "Session หมดอายุ กรุณา login ใหม่");
     return;
   }
@@ -496,11 +522,12 @@ async function login(event) {
     const result = await api("/api/auth/login", {
       email: el.loginEmail.value.trim(),
       password: el.loginPassword.value.trim()
-    });
+    }, { authToken: "" });
     if (!result.ok) {
       showLoginError(result.message || "Login ไม่สำเร็จ");
       return;
     }
+    clearAuthenticatedRuntime();
     state.authToken = result.data.token;
     state.currentUser = result.data.user;
     el.loginPassword.value = "";
@@ -514,8 +541,7 @@ async function login(event) {
 
 async function logout() {
   await api("/api/auth/logout", {});
-  clearAuthenticatedClientState();
-  stopCamera();
+  clearAuthenticatedRuntime();
   el.userDropdown?.classList.add("hidden");
   showLogin("ออกจากระบบแล้ว");
 }
@@ -543,13 +569,59 @@ async function loadAuthenticatedConfig() {
 }
 
 function clearAuthenticatedClientState() {
-  localStorage.removeItem("smartrecord.authToken");
-  state.authToken = "";
-  state.currentUser = null;
-  state.config = null;
-  state.session = null;
-  state.record = null;
-  deviceSettings = null;
+  clearAuthenticatedRuntime();
+}
+
+function clearAuthenticatedRuntime() {
+  authenticatedRuntime.cleanup();
+}
+
+function clearPermissionSensitiveDom() {
+  for (const node of [
+    el.currentUser, el.userAvatar, el.dropdownName, el.dropdownEmail, el.roleBadge,
+    el.stationId, el.employeeId, el.activeAwb, el.activePlatform, el.activeStation,
+    el.startedAt, el.sessionStatus, el.itemCount, el.progressText, el.uploadOrderLine,
+    el.uploadPct, el.completeTitle, el.selectedCount, el.importSummary, el.labelCount,
+    el.labelFilterHint, el.auditCount, el.activityCount, el.userCount, el.detailAwb,
+    el.deviceSummary, el.storageHint, el.cameraStatus, el.cameraPermissionStatus,
+    el.nasPrinterStatus, el.diagnosticsOverall, el.diagnosticsCheckedAt
+  ]) {
+    if (node) node.textContent = "";
+  }
+  for (const node of [
+    el.connectCards, el.syncOrderList, el.labelList, el.labelPrintMeta, el.labelImportPreview,
+    el.labelLibraryPreview, el.userList, el.permissionMatrix, el.auditList, el.activityList,
+    el.itemList, el.receipt, el.reportsBody, el.detailReceipt, el.detailVideoPlayer,
+    el.uploadSteps, el.storageCardGroup, el.diagnosticsChecks
+  ]) {
+    if (node) node.innerHTML = "";
+  }
+  for (const node of [
+    el.awbInput, el.scanInput, el.reportSearch, el.labelSearchInput, el.labelDateFilter,
+    el.manualAwbInput, el.manualOrderNumberInput, el.manualBuyerInput, el.manualItemCountInput,
+    el.editImportedAwb, el.editImportedOrderNumber, el.editImportedBuyer, el.editImportedSku,
+    el.editImportedBarcode, el.editImportedProductName, el.editImportedQty, el.editImportedCarrier,
+    el.forceReason, el.detailShareLink, el.prePackImageInput, el.labelFileInput, el.labelLibraryFileInput
+  ]) {
+    if (node) node.value = "";
+  }
+  for (const dialog of [el.settingsDialog, el.forceCloseDialog, el.importConfirmDialog, el.editImportedOrderDialog, el.labelPrintDialog, el.recordDetailDialog, el.warningDialog]) {
+    try {
+      if (dialog?.open) dialog.close();
+    } catch {
+      // A closed dialog must not make authenticated cleanup fail.
+    }
+  }
+  el.tabs.forEach((tab) => tab.classList.remove("active"));
+  el.views.forEach((view) => view.classList.remove("active"));
+  el.userDropdown?.classList.add("hidden");
+  el.recBadge?.classList.remove("show");
+  if (el.recTimer) el.recTimer.textContent = "00:00";
+  if (el.webcamVideo) el.webcamVideo.srcObject = null;
+  if (el.settingsCameraPreview) el.settingsCameraPreview.srcObject = null;
+  el.cameraPreviewWrap?.classList.add("hidden");
+  if (el.prePackGuideImg) el.prePackGuideImg.src = "/assets/prepack-label-required.png";
+  if (el.prePackImagePreview) el.prePackImagePreview.src = "/assets/prepack-label-required.png";
 }
 
 function initializeAuthenticatedConfig() {
@@ -601,9 +673,7 @@ function showLogin(message = "") {
 }
 
 function showStartupError(message) {
-  state.authToken = "";
-  state.currentUser = null;
-  localStorage.removeItem("smartrecord.authToken");
+  clearAuthenticatedRuntime();
   showLogin(message);
   showLoginError(message);
 }
@@ -2176,8 +2246,15 @@ async function startCamera() {
   recordingDiagnostics = resetRecordingDiagnostics();
   recSeconds = 0;
   el.recTimer.textContent = "00:00";
+  const requestGeneration = authenticatedRuntime.getGeneration();
+  const requestToken = state.authToken;
   try {
-    mediaStream = await openCameraStream(deviceSettings.cameraDeviceId);
+    const stream = await openCameraStream(deviceSettings.cameraDeviceId);
+    if (!authenticatedRuntime.isCurrent(requestGeneration, requestToken)) {
+      stream.getTracks().forEach((track) => track.stop());
+      return;
+    }
+    mediaStream = stream;
     recordingDiagnostics.cameraStarted = true;
     deviceConnection.cameraTestOk = true;
     el.webcamVideo.srcObject = mediaStream;
@@ -2196,6 +2273,7 @@ async function startCamera() {
     toast(cameraErrorMessage(error));
   }
   recTimerId = setInterval(() => {
+    if (!authenticatedRuntime.isCurrent(requestGeneration, requestToken)) return;
     recSeconds += 1;
     const min = String(Math.floor(recSeconds / 60)).padStart(2, "0");
     const sec = String(recSeconds % 60).padStart(2, "0");
@@ -2204,6 +2282,13 @@ async function startCamera() {
 }
 
 function stopCamera() {
+  if (mediaRecorder && mediaRecorder.state !== "inactive") {
+    try {
+      mediaRecorder.stop();
+    } catch {
+      // The browser may have already stopped the recorder.
+    }
+  }
   mediaRecorder = null;
   if (mediaStream) {
     mediaStream.getTracks().forEach((track) => track.stop());
@@ -2222,18 +2307,23 @@ function startMediaRecorder(stream) {
   const preferredTypes = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"];
   const mimeType = preferredTypes.find((type) => MediaRecorder.isTypeSupported(type)) || "";
   try {
-    mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-    mediaRecorder.addEventListener("dataavailable", (event) => {
+    const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+    const recorderGeneration = authenticatedRuntime.getGeneration();
+    const recorderToken = state.authToken;
+    mediaRecorder = recorder;
+    recorder.addEventListener("dataavailable", (event) => {
+      if (!authenticatedRuntime.isCurrent(recorderGeneration, recorderToken) || mediaRecorder !== recorder) return;
       if (event.data?.size > 0) {
         recordedChunks.push(event.data);
         recordingDiagnostics.chunks = recordedChunks.length;
         recordingDiagnostics.bytes += event.data.size;
       }
     });
-    mediaRecorder.addEventListener("error", (event) => {
+    recorder.addEventListener("error", (event) => {
+      if (!authenticatedRuntime.isCurrent(recorderGeneration, recorderToken) || mediaRecorder !== recorder) return;
       recordingDiagnostics.recorderError = event.error?.message || "MediaRecorder error";
     });
-    mediaRecorder.start(1000);
+    recorder.start(1000);
     recordingDiagnostics.recorderStarted = true;
     recordingDiagnostics.mimeType = mediaRecorder.mimeType || mimeType || "video/webm";
   } catch {
@@ -2244,7 +2334,10 @@ function startMediaRecorder(stream) {
 }
 
 async function stopAndUploadRecording(record) {
+  const requestGeneration = authenticatedRuntime.getGeneration();
+  const requestToken = state.authToken;
   const blob = await stopRecordingBlob();
+  if (!authenticatedRuntime.isCurrent(requestGeneration, requestToken)) return null;
   if (!blob || blob.size === 0) return null;
   const params = new URLSearchParams({
     recordId: record.id,
@@ -2252,15 +2345,8 @@ async function stopAndUploadRecording(record) {
     storageTargetId: record.storage.targetId
   });
   if (deviceSettings.customStoragePath) params.set("customPath", deviceSettings.customStoragePath);
-  const response = await fetch(`/api/video/upload?${params.toString()}`, {
-    method: "POST",
-    headers: {
-      ...(state.authToken ? { Authorization: `Bearer ${state.authToken}` } : {}),
-      "Content-Type": blob.type || "video/webm"
-    },
-    body: blob
-  });
-  const result = await response.json();
+  const result = await apiFile(`/api/video/upload?${params.toString()}`, blob);
+  if (!authenticatedRuntime.isCurrent(requestGeneration, requestToken)) return null;
   if (!result.ok) {
     recordingDiagnostics.uploadError = result.message || "อัปโหลดวิดีโอไม่สำเร็จ";
     toast(result.message || "อัปโหลดวิดีโอไม่สำเร็จ");
@@ -3008,6 +3094,8 @@ async function copyText(value, message = "คัดลอกลิงก์แ�
 }
 
 async function api(url, body, { authToken = state.authToken } = {}) {
+  const requestGeneration = authenticatedRuntime.getGeneration();
+  const requestToken = authToken;
   const headers = {};
   if (body) headers["Content-Type"] = "application/json";
   if (authToken) headers.Authorization = `Bearer ${authToken}`;
@@ -3036,14 +3124,18 @@ async function api(url, body, { authToken = state.authToken } = {}) {
       message: "server ตอบกลับไม่ถูกต้อง กรุณารีเฟรชแล้วลองใหม่อีกครั้ง"
     };
   }
-  if ((result.code === "AUTH_REQUIRED" || result.code === "SESSION_EXPIRED") && !url.startsWith("/api/auth/")) {
-    clearAuthenticatedClientState();
+  if (requestToken && !authenticatedRuntime.isCurrent(requestGeneration, requestToken)) {
+    return { ok: false, code: "AUTH_STATE_CHANGED", message: "สถานะการเข้าสู่ระบบเปลี่ยนแล้ว" };
+  }
+  if (!url.startsWith("/api/auth/") && authenticatedRuntime.cleanupForAuthenticationFailure(result)) {
     showLogin(result.message);
   }
   return result;
 }
 
 async function apiFile(url, file) {
+  const requestGeneration = authenticatedRuntime.getGeneration();
+  const requestToken = state.authToken;
   const headers = {};
   if (file?.type) headers["Content-Type"] = file.type;
   if (state.authToken) headers.Authorization = `Bearer ${state.authToken}`;
@@ -3072,10 +3164,10 @@ async function apiFile(url, file) {
       message: "server ตอบกลับไม่ถูกต้อง กรุณารีเฟรชแล้วลองใหม่อีกครั้ง"
     };
   }
-  if ((result.code === "AUTH_REQUIRED" || result.code === "SESSION_EXPIRED") && !url.startsWith("/api/auth/")) {
-    localStorage.removeItem("smartrecord.authToken");
-    state.authToken = "";
-    state.currentUser = null;
+  if (requestToken && !authenticatedRuntime.isCurrent(requestGeneration, requestToken)) {
+    return { ok: false, code: "AUTH_STATE_CHANGED", message: "สถานะการเข้าสู่ระบบเปลี่ยนแล้ว" };
+  }
+  if (!url.startsWith("/api/auth/") && authenticatedRuntime.cleanupForAuthenticationFailure(result)) {
     showLogin(result.message);
   }
   return result;

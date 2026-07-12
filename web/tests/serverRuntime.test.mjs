@@ -187,6 +187,52 @@ test("authenticated config is filtered by each user's permissions without a glob
   assert.ok(ownerConfig.auth.roles);
 });
 
+test("Packer pre-pack guide response is an exact allowlist and cannot leak metadata", async (t) => {
+  const port = nextPort();
+  const runtime = await createPrinterTestRuntime();
+  const config = JSON.parse(await fs.readFile(path.join(runtime.dir, "app-config.json"), "utf8"));
+  config.systemAssets.prePackGuideImage.syntheticFutureField = "future-field-must-not-leak";
+  await fs.writeFile(path.join(runtime.dir, "app-config.json"), JSON.stringify(config));
+  await fs.writeFile(path.join(runtime.dir, "app-settings.json"), JSON.stringify({
+    systemAssets: {
+      prePackGuideImage: {
+        url: "/assets/prepack-guide-custom.webp?v=fixture",
+        updatedAt: "2026-07-12T10:11:12.000Z",
+        updatedBy: { name: "Recognizable Fixture Actor", email: "fixture.actor@example.test" },
+        fileName: "prepack-guide-custom.webp",
+        bytes: 12345,
+        contentType: "image/webp",
+        width: 1600,
+        height: 900,
+        syntheticFutureField: "future-runtime-field-must-not-leak"
+      }
+    }
+  }));
+  const server = await startServer(port, runtime.env);
+  t.after(async () => {
+    await stopServer(server);
+    await fs.rm(runtime.dir, { recursive: true, force: true });
+  });
+
+  const packer = await login(port, "packer@test.local", "pack-password");
+  const response = await requestJson(port, "/api/config", {
+    headers: { Authorization: `Bearer ${packer.token}` }
+  });
+  const guide = response.body.data.systemAssets.prePackGuideImage;
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(Object.keys(guide).sort(), ["url"]);
+  assert.deepEqual(guide, { url: "/assets/prepack-guide-custom.webp?v=fixture" });
+  for (const forbiddenField of [
+    "updatedAt", "updatedBy", "fileName", "bytes", "contentType", "width", "height",
+    "acceptedImageTypes", "maxImageSizeMb", "defaultUrl", "syntheticFutureField"
+  ]) {
+    assert.equal(forbiddenField in guide, false, `Packer guide must omit ${forbiddenField}`);
+  }
+  const serialized = JSON.stringify(response.body);
+  assert.doesNotMatch(serialized, /Recognizable Fixture Actor|fixture\.actor@example\.test/);
+});
+
 test("NAS/CUPS printer route requires settings:manage", async (t) => {
   const port = nextPort();
   const runtime = await createPrinterTestRuntime();

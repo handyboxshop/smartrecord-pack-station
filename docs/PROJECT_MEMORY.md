@@ -1,5 +1,18 @@
 # Project Memory
 
+## 2026-07-12 — PR-H1 M-1/M-2 Pack Guide Projection and Authenticated Runtime Cleanup
+
+- what: จำกัด pre-pack guide ที่ส่งผ่าน authenticated `/api/config` สำหรับผู้มี `pack:use` ให้เป็น allowlist แบบ explicit และเพิ่ม authenticated-runtime cleanup กลางสำหรับล้าง session/client state/media resources
+- root cause: projection เดิม spread source metadata ของ pre-pack guide และส่ง `updatedBy` ไปยัง Pack client; client cleanup เดิมล้างเพียง token/user/config/pack state บางส่วน จึงอาจเหลือ collection, DOM, camera, MediaRecorder หรือ timer ของบัญชีเดิม
+- correct:
+  - Pack-facing `systemAssets.prePackGuideImage` ส่งเฉพาะ `url` จาก explicit object เท่านั้น; ไม่ retain `updatedAt` เพราะ Pack UI อ่านเฉพาะ URL ขณะที่ข้อความเวลาอยู่ใน Settings UI
+  - metadata สำหรับ Settings (`defaultUrl`, image validation limits/types และ saved upload metadata) คงอยู่เฉพาะ owner/admin ที่มี `settings:manage`, ซึ่งเป็น authorization เดียวกับการเปลี่ยนรูป
+  - cleanup กลางถูกเรียกจาก logout, `AUTH_REQUIRED`, `SESSION_EXPIRED`, authenticated-config failure และก่อนรับ identity ใหม่/เปลี่ยนบัญชี
+  - cleanup ลบ persisted/in-memory token, user, authenticated config, pack session/record, users/audit/activity/reports/records/synced orders/labels/diagnostics, editing IDs และ selected state; public config และ device-local preferences ที่ intentional ยังคงอยู่
+  - cleanup หยุด MediaRecorder อย่างปลอดภัย, หยุดทุก track ของ pack/settings camera streams, ตัด stream/recorder references, reset timer/elapsed/camera state และล้าง permission-sensitive DOM; generation guard ป้องกัน async response/stream เก่ากลับมา restore state หลัง cleanup
+- Behavioral coverage: HTTP-level Packer guide fixture มี actor name/email, metadata ครบ และ future field เพื่อยืนยัน exact allowlist; cleanup coverage สำหรับ `AUTH_REQUIRED`, `SESSION_EXPIRED`, config failure, recorder/tracks/timer, explicit cleanup, lower-privilege account switch และ idempotency พร้อม regression suite ของทุก role
+- Verification: `npm run check --prefix web` ผ่าน และ `npm test --prefix web` ผ่าน 152/152 tests
+
 ## 2026-07-12 — PR-H1 Public / Authenticated Config Separation
 
 - what: แยก config API เป็น `GET /api/config/public` สำหรับหน้า Login และ `GET /api/config` สำหรับ session ที่ยืนยันตัวตนแล้ว โดย authenticated config กรอง section ตาม permission ของ current user

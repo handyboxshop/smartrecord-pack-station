@@ -1,5 +1,25 @@
 # Decision Log
 
+## 2026-07-12 — PR-H1 M-1/M-2: Strict Pack Guide Projection and Centralized Cleanup
+
+## Decision
+
+- ให้ Pack-facing pre-pack guide ใน authenticated config ใช้ literal allowlist `{ url }` เท่านั้น และห้าม pass-through source object ทุกแบบ
+- ไม่ส่ง `updatedAt` ให้ Pack เพราะ Pack UI ใช้เฉพาะ `url`; `updatedAt` คงอยู่ใน Settings-facing metadata สำหรับ owner/admin ที่มี `settings:manage`
+- ใช้ cleanup กลางตัวเดียวสำหรับ logout, `AUTH_REQUIRED`, `SESSION_EXPIRED`, authenticated-config failure และก่อนยอมรับ authenticated identity ใหม่
+
+## Rationale
+
+- metadata ของไฟล์และ actor identity ไม่จำเป็นต่อการเริ่มแพค และ future field ต้องไม่สามารถ leak โดยบังเอิญ
+- session failure ต้องหยุด camera/MediaRecorder/timer และล้าง privileged data/DOM ในจุดเดียวเพื่อไม่ให้บัญชีสิทธิ์ต่ำเห็น state ของบัญชีเดิม
+- public login-safe config และ device-local preferences เป็น state ที่ตั้งใจให้คงอยู่ จึงไม่ล้างระหว่าง authenticated cleanup
+
+## Consequences
+
+- Pack response ไม่มี `updatedBy`, actor name/email, file metadata, validation config, default URL หรือ field ใหม่ในอนาคต
+- Settings metadata ยังคง protected ด้วย `settings:manage` และ owner/admin role guard ที่ตรงกับ upload route
+- async authenticated responses และ camera acquisition ที่เริ่มก่อน cleanup จะถูก ignore/release ด้วย generation guard
+
 ## 2026-07-12 — Separate public and authenticated configuration
 
 - Decision: หน้า Login ใช้ `GET /api/config/public` ซึ่ง whitelist เฉพาะข้อมูล app ขั้นต่ำ; `GET /api/config` ต้องมี valid session และส่ง section ตาม permission ของ current user
