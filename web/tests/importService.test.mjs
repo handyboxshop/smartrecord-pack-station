@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createImportService } from "../src/domain/importService.mjs";
 import { createPackService } from "../src/domain/packService.mjs";
+import { parseShippingLabelText } from "../src/domain/shippingLabelParser.mjs";
 
 function itemLine({ sku = "CAB-WALL-2D-60X32X24", name = "ตู้แขวนผนัง 2 ประตู 60x32x24 ซม.", qty = 1, barcode = sku } = {}) {
   return { sku, name, qty, barcode };
@@ -327,9 +328,9 @@ test("shipping label duplicate is decided by order number and AWB", () => {
   assert.equal(created.ok, true);
 
   const duplicate = service.createOrderFromShippingLabel({ parsed });
-  assert.equal(duplicate.ok, false);
-  assert.equal(duplicate.code, "ORDER_DUPLICATE_LABEL");
-  assert.match(duplicate.message, /เลขออเดอร์ 260529N4JQKDMS \+ AWB TH54018SMKA07J/);
+  assert.equal(duplicate.ok, true);
+  assert.equal(duplicate.data.orderState, "already_exists");
+  assert.equal(duplicate.data.awb, "TH54018SMKA07J");
 
   const conflict = service.createOrderFromShippingLabel({
     parsed: {
@@ -474,8 +475,8 @@ test("updating a fallback order clears review metadata only after all fallback v
   const duplicate = service.createOrderFromShippingLabel({
     parsed: { awb, platform: "shopee", orderNumber: "260707376YX4E3", customerName: "ลูกค้าทดสอบ", productName: "ตู้เหล็กมาตรฐาน", quantity: 1 }
   });
-  assert.equal(duplicate.ok, false);
-  assert.equal(duplicate.code, "ORDER_DUPLICATE_LABEL");
+  assert.equal(duplicate.ok, true);
+  assert.equal(duplicate.data.orderState, "already_exists");
 });
 
 test("draft label import can be edited later and promoted into ORDER_DB when item details are completed", () => {
@@ -747,4 +748,46 @@ test("imported manual label order can be deleted and disappears from sync list",
   const order = synced.data.orders.find((item) => item.awb === "798892416184");
   assert.equal(order, undefined);
   assert.equal(service.listImportedAwbs().has("798892416184"), false);
+});
+
+test("unknown platform with a recoverable AWB imports as custom and review-required", () => {
+  const parsed = parseShippingLabelText("JTTHSYNTH0002");
+  assert.equal(parsed.ok, false);
+  assert.equal(parsed.data.awb, "JTTHSYNTH0002");
+
+  const orders = {};
+  const result = createImportService({ orders, syncOrders: [] }).createOrderFromShippingLabel({ parsed: parsed.data });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.data.orderState, "created");
+  assert.equal(result.data.reviewRequired, true);
+  assert.equal(orders.JTTHSYNTH0002.platform, "ทั่วไป");
+  assert.equal(orders.JTTHSYNTH0002.reviewRequired, true);
+});
+
+test("an exact shipping-label order returns already_exists while an AWB/order mismatch stays blocking", () => {
+  const orders = {};
+  const service = createImportService({ orders, syncOrders: [] });
+  const parsed = {
+    awb: "THSYNTH000001",
+    platform: "shopee",
+    orderNumber: "SHOP-SYN-001",
+    customerName: "Synthetic Receiver",
+    productName: "Synthetic item",
+    quantity: 1
+  };
+
+  assert.equal(service.createOrderFromShippingLabel({ parsed }).data.orderState, "created");
+
+  const duplicate = service.createOrderFromShippingLabel({ parsed });
+  assert.equal(duplicate.ok, true);
+  assert.equal(duplicate.data.orderState, "already_exists");
+  assert.equal(Object.keys(orders).length, 1);
+
+  const conflict = service.createOrderFromShippingLabel({
+    parsed: { ...parsed, orderNumber: "SHOP-SYN-002" }
+  });
+  assert.equal(conflict.ok, false);
+  assert.equal(conflict.code, "ORDER_AWB_CONFLICT");
+  assert.equal(conflict.data.orderState, "conflict");
 });

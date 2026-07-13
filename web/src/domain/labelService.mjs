@@ -56,7 +56,7 @@ export function createLabelService({ config, idFactory, initialLabels = [] } = {
     });
     const printableTotal = labels.filter((label) => String(label.status || "").trim().toLowerCase() !== "skipped").length;
     return ok({
-      labels: [...filtered],
+      labels: filtered.map(normalizeLabelForRead),
       total: printableTotal,
       filtered: filtered.length
     });
@@ -65,14 +65,28 @@ export function createLabelService({ config, idFactory, initialLabels = [] } = {
   function registerImportedLabel({ parsed = {}, labelFile = {}, order = null, status = "imported" } = {}) {
     const importedAt = labelFile.importedAt || new Date().toISOString();
     const cleanAwb = String(parsed.awb || order?.awb || "").trim();
-    if (cleanAwb) {
-      for (let index = labels.length - 1; index >= 0; index -= 1) {
-        const current = labels[index];
-        if (current?.source !== "connect-import") continue;
-        if (String(current?.awb || "").trim() !== cleanAwb) continue;
-        labels.splice(index, 1);
-      }
+    const cleanOrderNumber = String(parsed.orderNumber || order?.orderNumber || "").trim();
+    const page = normalizePageNumber(labelFile.page);
+    const labelIndex = normalizePageNumber(labelFile.labelIndex);
+    const printablePageKey = createPrintablePageKey({
+      awb: cleanAwb,
+      orderNumber: cleanOrderNumber,
+      page,
+      labelIndex
+    });
+    const existing = labels.find((current) => current?.source === "connect-import"
+      && printablePageKeyFor(current) === printablePageKey);
+    if (existing) {
+      return ok({
+        ...normalizeLabelForRead(existing),
+        labelState: "already_exists"
+      }, "ใบปะหน้าสำหรับพิมพ์มีอยู่แล้ว");
     }
+
+    const pageImageRelativePath = String(labelFile.pageImageRelativePath || "").trim();
+    const sourceRelativePath = String(labelFile.relativePath || "").trim();
+    const previewRelativePath = firstImagePath(pageImageRelativePath, sourceRelativePath);
+    const originalRelativePath = String(labelFile.originalRelativePath || sourceRelativePath).trim();
     const label = {
       id: `LBL-${String(nextId()).replace(/[^a-zA-Z0-9]/g, "").slice(0, 10).toUpperCase()}`,
       source: "connect-import",
@@ -80,26 +94,28 @@ export function createLabelService({ config, idFactory, initialLabels = [] } = {
       platform: parsed.platform || order?.platform || "custom",
       date: importedAt.slice(0, 10),
       fileName: String(labelFile.fileName || "shipping-label").trim().slice(0, 120) || "shipping-label",
-      relativePath: labelFile.pageImageRelativePath || labelFile.relativePath || "",
-      originalRelativePath: labelFile.relativePath || "",
-      contentType: labelFile.contentType || "",
+      relativePath: previewRelativePath || sourceRelativePath,
+      originalRelativePath,
+      pageImageRelativePath,
+      contentType: inferContentType(previewRelativePath || sourceRelativePath, labelFile.contentType),
       awb: cleanAwb,
-      orderNumber: parsed.orderNumber || order?.orderNumber || "",
+      orderNumber: cleanOrderNumber,
       customerName: parsed.customerName || order?.buyer || "",
       carrier: parsed.carrier || order?.carrier || "",
-      page: labelFile.page || 1,
-      labelIndex: labelFile.labelIndex || 1,
+      page,
+      labelIndex,
+      printablePageKey,
       sizeBytes: labelFile.bytes || 0,
       createdAt: importedAt
     };
     labels.unshift(label);
-    return ok(label, "บันทึกใบปะหน้าจาก Connect / Import แล้ว");
+    return ok({ ...normalizeLabelForRead(label), labelState: "created" }, "บันทึกใบปะหน้าจาก Connect / Import แล้ว");
   }
 
   function getLabel(id) {
     const label = labels.find((item) => item.id === id);
     if (!label) return fail("LABEL_NOT_FOUND", "ไม่พบใบปะหน้านี้");
-    return ok(label);
+    return ok(normalizeLabelForRead(label));
   }
 
   function deleteLabelsForAwb({ awb = "" } = {}) {
@@ -133,10 +149,66 @@ export function createLabelService({ config, idFactory, initialLabels = [] } = {
   }
 
   function listAllLabels() {
-    return [...labels];
+    return labels.map((label) => ({ ...label }));
   }
 
   return { saveLabel, registerImportedLabel, listLabels, listAllLabels, getLabel, deleteLabelsForAwb, updateLabelsForAwb };
+}
+
+export function normalizeLabelForRead(label = {}) {
+  const raw = label && typeof label === "object" ? label : {};
+  const pageImageRelativePath = String(raw.pageImageRelativePath || "").trim();
+  const relativePath = String(raw.relativePath || "").trim();
+  const originalRelativePath = String(raw.originalRelativePath || "").trim();
+  const previewRelativePath = firstImagePath(pageImageRelativePath, relativePath, originalRelativePath);
+  const selectedPath = previewRelativePath || relativePath;
+
+  return {
+    ...raw,
+    relativePath: selectedPath,
+    pageImageRelativePath,
+    originalRelativePath,
+    previewRelativePath,
+    previewContentType: inferContentType(previewRelativePath, raw.contentType),
+    contentType: inferContentType(selectedPath, raw.contentType)
+  };
+}
+
+function createPrintablePageKey({ awb = "", orderNumber = "", page = 1, labelIndex = 1 } = {}) {
+  return [
+    String(awb || "").trim().toUpperCase(),
+    String(orderNumber || "").trim().toUpperCase(),
+    normalizePageNumber(page),
+    normalizePageNumber(labelIndex)
+  ].join("|");
+}
+
+function printablePageKeyFor(label = {}) {
+  return String(label?.printablePageKey || "").trim() || createPrintablePageKey(label);
+}
+
+function normalizePageNumber(value) {
+  const number = Number(value);
+  return Number.isInteger(number) && number > 0 ? number : 1;
+}
+
+function firstImagePath(...paths) {
+  return paths.map((value) => String(value || "").trim()).find(isImagePath) || "";
+}
+
+function isImagePath(value) {
+  return /\.(?:avif|gif|jpe?g|png|webp)$/i.test(String(value || "").split(/[?#]/, 1)[0]);
+}
+
+function inferContentType(filePath, fallback = "") {
+  const path = String(filePath || "").split(/[?#]/, 1)[0].toLowerCase();
+  if (/\.png$/.test(path)) return "image/png";
+  if (/\.jpe?g$/.test(path)) return "image/jpeg";
+  if (/\.webp$/.test(path)) return "image/webp";
+  if (/\.gif$/.test(path)) return "image/gif";
+  if (/\.avif$/.test(path)) return "image/avif";
+  if (/\.pdf$/.test(path)) return "application/pdf";
+  return String(fallback || "").trim();
 }
 
 function ok(data, message = "") {

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createImportService } from "../src/domain/importService.mjs";
 import { createLabelService } from "../src/domain/labelService.mjs";
 
 const sampleConfig = {
@@ -151,7 +152,7 @@ test("listLabels hides skipped imported labels so duplicate uploads never appear
   assert.equal(list.data.labels.length, 0);
 });
 
-test("listLabels keeps imported printable labels for the same AWB available to API dedupe layer", () => {
+test("registerImportedLabel keeps an existing printable page instead of replacing it", () => {
   const service = createLabelService({ config: sampleConfig, idFactory: () => "import-id-dupe" });
 
   service.registerImportedLabel({
@@ -173,7 +174,7 @@ test("listLabels keeps imported printable labels for the same AWB available to A
     status: "imported"
   });
 
-  service.registerImportedLabel({
+  const duplicate = service.registerImportedLabel({
     parsed: {
       platform: "shopee",
       awb: "TH23018SMKA02G",
@@ -194,10 +195,11 @@ test("listLabels keeps imported printable labels for the same AWB available to A
 
   const list = service.listLabels();
   assert.equal(list.ok, true);
+  assert.equal(duplicate.data.labelState, "already_exists");
   assert.equal(list.data.total, 1);
   assert.equal(list.data.filtered, 1);
   assert.equal(list.data.labels.length, 1);
-  assert.equal(list.data.labels[0].fileName, "shipping-label-page-2.png");
+  assert.equal(list.data.labels[0].fileName, "shipping-label-page-1.png");
 });
 
 test("listLabels keeps printable labels from skipped imports that still have a valid AWB", () => {
@@ -342,4 +344,96 @@ test("createLabelService restores labels from initialLabels for runtime persiste
   assert.equal(listed.ok, true);
   assert.equal(listed.data.labels.length, 1);
   assert.equal(listed.data.labels[0].id, saved.data.id);
+});
+
+test("an existing order can add a printable label and an exact retry is idempotent", () => {
+  const orders = {};
+  const imports = createImportService({ orders, syncOrders: [] });
+  const parsed = {
+    platform: "shopee",
+    awb: "THSYNTH000002",
+    orderNumber: "SHOP-SYN-010",
+    customerName: "Synthetic Receiver",
+    productName: "Synthetic item",
+    quantity: 1
+  };
+  assert.equal(imports.createOrderFromShippingLabel({ parsed }).data.orderState, "created");
+  const existingOrder = imports.createOrderFromShippingLabel({ parsed });
+  assert.equal(existingOrder.data.orderState, "already_exists");
+
+  const labels = createLabelService({ config: sampleConfig, idFactory: () => "existing-order" });
+  const labelFile = {
+    fileName: "synthetic-page-1.png",
+    relativePath: "local-nas/labels/synthetic/source.pdf",
+    pageImageRelativePath: "local-nas/labels/synthetic/page-1.png",
+    contentType: "application/pdf",
+    importedAt: "2026-07-14T10:00:00.000Z",
+    page: 1,
+    labelIndex: 1
+  };
+
+  const added = labels.registerImportedLabel({ parsed, labelFile, order: existingOrder.data });
+  const repeated = labels.registerImportedLabel({ parsed, labelFile, order: existingOrder.data });
+
+  assert.equal(added.data.labelState, "created");
+  assert.equal(repeated.data.labelState, "already_exists");
+  assert.equal(labels.listLabels().data.labels.length, 1);
+});
+
+test("a duplicate Shopee page does not block another page in the same synthetic PDF", () => {
+  const labels = createLabelService({ config: sampleConfig, idFactory: () => "multi-page" });
+  const source = "local-nas/labels/synthetic/shopee-batch.pdf";
+  const firstPage = {
+    fileName: "shopee-batch.pdf",
+    relativePath: source,
+    pageImageRelativePath: "local-nas/labels/synthetic/shopee-batch-page-1.png",
+    contentType: "application/pdf",
+    importedAt: "2026-07-14T10:00:00.000Z",
+    page: 1,
+    labelIndex: 1
+  };
+  const secondPage = {
+    ...firstPage,
+    pageImageRelativePath: "local-nas/labels/synthetic/shopee-batch-page-2.png",
+    page: 2
+  };
+  const first = { platform: "shopee", awb: "THSYNTH000003", orderNumber: "SHOP-SYN-011" };
+  const second = { platform: "shopee", awb: "THSYNTH000004", orderNumber: "SHOP-SYN-012" };
+
+  assert.equal(labels.registerImportedLabel({ parsed: first, labelFile: firstPage }).data.labelState, "created");
+  assert.equal(labels.registerImportedLabel({ parsed: first, labelFile: firstPage }).data.labelState, "already_exists");
+  assert.equal(labels.registerImportedLabel({ parsed: second, labelFile: secondPage }).data.labelState, "created");
+
+  const listed = labels.listLabels().data.labels;
+  assert.equal(listed.length, 2);
+  assert.deepEqual(listed.map((label) => label.page).sort(), [1, 2]);
+});
+
+test("legacy label reads prefer the page PNG without rewriting persisted metadata", () => {
+  const initialLabels = [{
+    id: "LBL-LEGACYPAGE",
+    source: "connect-import",
+    status: "imported",
+    platform: "lazada",
+    date: "2026-07-14",
+    fileName: "synthetic-source.pdf",
+    relativePath: "local-nas/labels/synthetic/source.pdf",
+    originalRelativePath: "local-nas/labels/synthetic/source.pdf",
+    pageImageRelativePath: "local-nas/labels/synthetic/source-page-1.png",
+    contentType: "application/pdf",
+    awb: "LEXDTEST0003",
+    orderNumber: "999999999900003"
+  }];
+  const service = createLabelService({ config: sampleConfig, initialLabels });
+
+  const visible = service.getLabel("LBL-LEGACYPAGE");
+  assert.equal(visible.ok, true);
+  assert.equal(visible.data.relativePath, "local-nas/labels/synthetic/source-page-1.png");
+  assert.equal(visible.data.previewRelativePath, "local-nas/labels/synthetic/source-page-1.png");
+  assert.equal(visible.data.contentType, "image/png");
+  assert.equal(visible.data.originalRelativePath, "local-nas/labels/synthetic/source.pdf");
+
+  const stored = service.listAllLabels()[0];
+  assert.equal(stored.relativePath, "local-nas/labels/synthetic/source.pdf");
+  assert.equal(stored.contentType, "application/pdf");
 });

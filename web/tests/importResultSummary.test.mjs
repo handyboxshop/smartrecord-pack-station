@@ -109,3 +109,26 @@ test("uses the legacy single-order fallback when imported rows are unavailable",
   assert.equal(result.uniqueOrderCount, 1);
   assert.equal(result.message, "นำเข้าใบปะหน้าสำเร็จ 1 รายการ · 1 คำสั่งซื้อ");
 });
+
+test("reports separate order and printable-label results for duplicate-safe imports", () => {
+  const result = buildImportResultSummary({
+    imported: [{
+      parsed: { awb: "THSYNTH000005", orderNumber: "SHOP-SYN-013" },
+      order: { awb: "THSYNTH000005", orderNumber: "SHOP-SYN-013" },
+      orderState: "already_exists",
+      labelState: "created"
+    }, {
+      parsed: { awb: "THSYNTH000006", orderNumber: "SHOP-SYN-014" },
+      order: { awb: "THSYNTH000006", orderNumber: "SHOP-SYN-014" },
+      orderState: "already_exists",
+      labelState: "already_exists"
+    }],
+    skippedCount: 1
+  });
+
+  assert.equal(result.tone, "success");
+  assert.match(result.message, /ออเดอร์มีอยู่แล้ว 2/);
+  assert.match(result.message, /เพิ่มใบปะหน้าสำหรับพิมพ์แล้ว 1/);
+  assert.match(result.message, /ใบปะหน้าสำหรับพิมพ์มีอยู่แล้ว 1/);
+  assert.match(result.message, /ขัดแย้ง\/ข้าม 1/);
+});
