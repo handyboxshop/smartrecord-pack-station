@@ -116,7 +116,7 @@ server.listen(port, host, () => {
   console.log(`[startup] mode=${mode}`);
   console.log(`[startup] host=${host}`);
   console.log(`[startup] port=${port}`);
-  console.log(`[startup] routes=GET /api/health, GET /api/config, POST /api/auth/login`);
+  console.log(`[startup] routes=GET /api/health, GET /api/config/public, GET /api/config, POST /api/auth/login`);
   console.log(`[startup] health=${healthUrl} ready`);
 });
 
@@ -166,8 +166,15 @@ async function handleApi(req, res, url) {
     return;
   }
 
-  if (req.method === "GET" && url.pathname === "/api/config") {
+  if (req.method === "GET" && url.pathname === "/api/config/public") {
     sendJson(res, 200, { ok: true, data: getPublicConfig(config) });
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/config") {
+    const auth = authService.getSession(readBearerToken(req));
+    if (!auth.ok) return sendResult(res, auth);
+    sendJson(res, 200, { ok: true, data: getAuthenticatedConfig(config, auth.data.user) });
     return;
   }
 
@@ -560,50 +567,112 @@ async function handleApi(req, res, url) {
 
 function getPublicConfig(source) {
   return {
-    app: source.app,
-    station: source.station,
-    employees: source.employees,
-    packFlow: source.packFlow,
-    systemAssets: {
-      prePackGuideImage: {
-        ...(source.systemAssets?.prePackGuideImage || {}),
-        url: appSettings.systemAssets?.prePackGuideImage?.url
-          || source.systemAssets?.prePackGuideImage?.defaultUrl
-          || "/assets/prepack-label-required.png",
-        updatedAt: appSettings.systemAssets?.prePackGuideImage?.updatedAt || null,
-        updatedBy: appSettings.systemAssets?.prePackGuideImage?.updatedBy || null
-      }
-    },
-    devices: source.devices,
-    upload: {
-      provider: source.upload.provider,
-      maxVideoSizeMb: source.upload.maxVideoSizeMb,
-      simulationSteps: source.upload.simulationSteps,
-      defaultStorageTargetId: source.upload.defaultStorageTargetId,
-      storageTargets: source.upload.storageTargets.map((target) => ({
-        ...describeStorageTarget({ rootDir, storageTarget: target }),
-        id: target.id,
-        label: target.label,
-        provider: target.provider,
-        host: target.host,
-        isDefault: target.isDefault
-      }))
-    },
-    reports: source.reports,
-    integrations: source.integrations,
-    ocr: {
+    app: publicAppConfig(source)
+  };
+}
+
+function getAuthenticatedConfig(source, user) {
+  const permissions = new Set(user.permissions || []);
+  const can = (permission) => permissions.has(permission);
+  const result = {
+    app: publicAppConfig(source),
+    auth: { modules: toPublicModules(source) }
+  };
+
+  if (can("pack:use")) {
+    result.station = source.station;
+    result.employees = source.employees;
+    result.packFlow = source.packFlow;
+    result.upload = packUploadConfig(source);
+    result.systemAssets = {
+      prePackGuideImage: publicPrePackGuideImage(source)
+    };
+  }
+  if (can("settings:manage")) {
+    result.devices = source.devices;
+    result.upload = publicUploadConfig(source);
+    result.ocr = {
       engine: source.ocr?.engine,
       languages: source.ocr?.languages,
       maxLabelFileSizeMb: source.ocr?.maxLabelFileSizeMb
-    },
-    labelPrint: source.labelPrint,
-    auth: {
-      modules: toPublicModules(source),
-      roles: toPublicRoles(source),
-      passwordPolicy: {
-        minLength: source.auth.passwordPolicy.minLength
-      }
+    };
+    if (["owner", "admin"].includes(user.roleId)) {
+      result.systemAssets = {
+        prePackGuideImage: settingsPrePackGuideImage(source)
+      };
     }
+  }
+  if (can("reports:view")) result.reports = source.reports;
+  if (can("integrations:manage")) result.integrations = source.integrations;
+  if (can("labels:manage")) result.labelPrint = source.labelPrint;
+  if (can("users:manage")) {
+    result.auth.roles = toPublicRoles(source);
+    result.auth.passwordPolicy = { minLength: source.auth.passwordPolicy.minLength };
+  }
+  return result;
+}
+
+function publicAppConfig(source) {
+  return {
+    name: source.app?.name,
+    defaultLocale: source.app?.defaultLocale,
+    timezone: source.app?.timezone
+  };
+}
+
+function publicPrePackGuideImage(source) {
+  return {
+    url: appSettings.systemAssets?.prePackGuideImage?.url
+      || source.systemAssets?.prePackGuideImage?.defaultUrl
+      || "/assets/prepack-label-required.png"
+  };
+}
+
+function settingsPrePackGuideImage(source) {
+  const configured = source.systemAssets?.prePackGuideImage || {};
+  const saved = appSettings.systemAssets?.prePackGuideImage || {};
+  return {
+    defaultUrl: configured.defaultUrl,
+    acceptedImageTypes: configured.acceptedImageTypes,
+    maxImageSizeMb: configured.maxImageSizeMb,
+    url: saved.url || configured.defaultUrl || "/assets/prepack-label-required.png",
+    updatedAt: saved.updatedAt || null,
+    updatedBy: saved.updatedBy || null,
+    fileName: saved.fileName || null,
+    bytes: saved.bytes || null,
+    contentType: saved.contentType || null,
+    width: saved.width || null,
+    height: saved.height || null
+  };
+}
+
+function packUploadConfig(source) {
+  return {
+    simulationSteps: source.upload.simulationSteps,
+    defaultStorageTargetId: source.upload.defaultStorageTargetId,
+    storageTargets: source.upload.storageTargets.map((target) => ({
+      id: target.id,
+      label: target.label,
+      provider: target.provider,
+      isDefault: target.isDefault
+    }))
+  };
+}
+
+function publicUploadConfig(source) {
+  return {
+    provider: source.upload.provider,
+    maxVideoSizeMb: source.upload.maxVideoSizeMb,
+    simulationSteps: source.upload.simulationSteps,
+    defaultStorageTargetId: source.upload.defaultStorageTargetId,
+    storageTargets: source.upload.storageTargets.map((target) => ({
+      ...describeStorageTarget({ rootDir, storageTarget: target }),
+      id: target.id,
+      label: target.label,
+      provider: target.provider,
+      host: target.host,
+      isDefault: target.isDefault
+    }))
   };
 }
 

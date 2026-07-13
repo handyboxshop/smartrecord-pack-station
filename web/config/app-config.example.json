@@ -154,7 +154,7 @@
   },
   "packFlow": {
     "closeBoxByRescanningAwb": true,
-    "allowForceCloseWithMissingItems": true,
+    "allowForceCloseWithMissingItems": false,
     "requireReasonForForceClose": true,
     "requireLabelBeforePack": true,
     "recordAudio": false

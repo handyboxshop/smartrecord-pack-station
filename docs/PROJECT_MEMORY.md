@@ -1,5 +1,33 @@
 # Project Memory
 
+## 2026-07-12 — PR-H1 M-1/M-2 Pack Guide Projection and Authenticated Runtime Cleanup
+
+- what: จำกัด pre-pack guide ที่ส่งผ่าน authenticated `/api/config` สำหรับผู้มี `pack:use` ให้เป็น allowlist แบบ explicit และเพิ่ม authenticated-runtime cleanup กลางสำหรับล้าง session/client state/media resources
+- root cause: projection เดิม spread source metadata ของ pre-pack guide และส่ง `updatedBy` ไปยัง Pack client; client cleanup เดิมล้างเพียง token/user/config/pack state บางส่วน จึงอาจเหลือ collection, DOM, camera, MediaRecorder หรือ timer ของบัญชีเดิม
+- correct:
+  - Pack-facing `systemAssets.prePackGuideImage` ส่งเฉพาะ `url` จาก explicit object เท่านั้น; ไม่ retain `updatedAt` เพราะ Pack UI อ่านเฉพาะ URL ขณะที่ข้อความเวลาอยู่ใน Settings UI
+  - metadata สำหรับ Settings (`defaultUrl`, image validation limits/types และ saved upload metadata) คงอยู่เฉพาะ owner/admin ที่มี `settings:manage`, ซึ่งเป็น authorization เดียวกับการเปลี่ยนรูป
+  - cleanup กลางถูกเรียกจาก logout, `AUTH_REQUIRED`, `SESSION_EXPIRED`, authenticated-config failure และก่อนรับ identity ใหม่/เปลี่ยนบัญชี
+  - cleanup ลบ persisted/in-memory token, user, authenticated config, pack session/record, users/audit/activity/reports/records/synced orders/labels/diagnostics, editing IDs และ selected state; public config และ device-local preferences ที่ intentional ยังคงอยู่
+  - cleanup หยุด MediaRecorder อย่างปลอดภัย, หยุดทุก track ของ pack/settings camera streams, ตัด stream/recorder references, reset timer/elapsed/camera state และล้าง permission-sensitive DOM; generation guard ป้องกัน async response/stream เก่ากลับมา restore state หลัง cleanup
+- Behavioral coverage: HTTP-level Packer guide fixture มี actor name/email, metadata ครบ และ future field เพื่อยืนยัน exact allowlist; cleanup coverage สำหรับ `AUTH_REQUIRED`, `SESSION_EXPIRED`, config failure, recorder/tracks/timer, explicit cleanup, lower-privilege account switch และ idempotency พร้อม regression suite ของทุก role
+- Verification: `npm run check --prefix web` ผ่าน และ `npm test --prefix web` ผ่าน 152/152 tests
+
+## 2026-07-12 — PR-H1 Public / Authenticated Config Separation
+
+- what: แยก config API เป็น `GET /api/config/public` สำหรับหน้า Login และ `GET /api/config` สำหรับ session ที่ยืนยันตัวตนแล้ว โดย authenticated config กรอง section ตาม permission ของ current user
+- root cause: หน้า Login เดิมเรียก `/api/config` แบบไม่ต้อง login ทำให้ station, employee, device, storage, NAS, integration, OCR, role และ password-policy metadata ถูกส่งก่อน authentication
+- correct:
+  - public config ส่งเฉพาะ `app.name`, `app.defaultLocale`, `app.timezone`; ไม่สร้าง branding สมมติและไม่ส่ง operational/auth metadata
+  - authenticated config ใช้ valid session เป็น gate และประกอบ section แยกตาม `pack:use`, `settings:manage`, `reports:view`, `integrations:manage`, `labels:manage`, `users:manage` โดยไม่บังคับ `pack:use` เป็น global gate
+  - `pack:use` ได้ upload config แบบ pack-facing เฉพาะ `simulationSteps`, default target ID และ target `id`/`label`/`provider`/`isDefault`; NAS host, path, mount/diagnostic metadata และ settings-only fields คงอยู่เฉพาะ settings-facing config
+  - Pack client ยอมใช้ saved storage target เฉพาะ ID ที่อยู่ใน allowlist จาก server; ค่าไม่รู้จัก fallback ไป server-approved default และไม่ส่ง custom path ของเครื่องลูกข่ายใน normal Pack flow
+  - frontend โหลด public config ก่อน login; โหลด full config หลัง login หรือ restore session สำเร็จเท่านั้น และรองรับ section ที่ถูกตัดออกด้วย default/optional access
+  - token ใหม่อยู่ใน memory จน authenticated config สำเร็จก่อน persist; หาก config ล้มเหลว client พยายาม logout server session แล้วล้าง token, user, config และ pack state เดิมเสมอ
+  - logout ล้าง authenticated config จาก memory; refresh หลัง logout จึงเรียกเฉพาะ public config
+- Behavioral coverage: boot ordering, logged-out public-only boot, safe Packer target validation/start payload/upload progress, config-failure logout/cleanup, actual response payload ของ Packer/Auditor/custom report-only/settings/admin/owner
+- Verification: `npm run check --prefix web` ผ่าน และ `npm test --prefix web` ผ่าน 146/146 tests
+
 ## 2026-07-11 — OCR and System Diagnostics
 
 - what: เพิ่ม `GET /api/devices/diagnostics` สำหรับ Device Settings และส่วน System Diagnostics ใน UI เพื่อให้ตรวจ SmartRecord server, OCR runtime, การตั้งค่า OCR และ OCR preprocessing timeout ได้แบบอ่านอย่างเดียว
@@ -1334,3 +1362,19 @@ UI polish ตามรายการ Login / Topbar / Settings:
   - ต้องรัน `node --check web/server/index.mjs`
   - ต้องรัน `node --check web/public/assets/app.js`
   - ต้องรัน `npm test`
+
+## 2026-07-12 — Pack workflow requires AWB-only starts and complete item scans
+
+- what: Start Pack รับเฉพาะ AWB; AWB ที่มี pack record แล้วหรือมี session เปิดอยู่ถูกบล็อก และระหว่าง pack session การยิง AWB เดิมซ้ำก่อนสแกนสินค้าให้ครบต้องถูกบล็อกทันที
+- root cause:
+  - `packService.startPackSession()` เคยไม่มี guard สำหรับ AWB ที่บันทึกแล้วหรือ session เดียวกันที่ยังเปิดอยู่ และข้อความ validation ยังกล่าวถึงเลขออเดอร์
+  - `packService.requestClose()` เคยคืน `MISSING_ITEMS` ที่ชวนให้ client เปิด dialog force-close; `closePackSession()` เคยอนุญาตให้ bypass จำนวนสินค้าคงเหลือได้เมื่อ config เปิดและมีเหตุผล
+- correct:
+  - normalize AWB ด้วย trim เดิม แล้วเทียบค่าแบบ exact กับทุก persisted record ก่อนสร้าง session: pass/warn หรือสถานะใด ๆ ตอบ `AWB_ALREADY_PACKED`; session `packing` เดิมของ AWB เดียวกันตอบ `AWB_PACK_IN_PROGRESS`
+  - Start Pack UI และ `AWB_REQUIRED` ของ pack service ระบุ AWB เท่านั้น; client เริ่ม camera/recording เฉพาะหลัง server ตอบ start สำเร็จ
+  - domain คืน contract `AWB_RESCAN_BLOCKED` พร้อม `session` และ `missingItems` เฉพาะกรณียิง AWB ซ้ำก่อนครบ; session ยังเป็น `packing` และไม่สร้าง record
+  - `closePackSession()` ปฏิเสธ `MISSING_ITEMS` เสมอเมื่อยังมีสินค้าไม่ครบ โดยไม่ใช้ `force` หรือ `reason`
+  - browser แสดงข้อความ Thai จาก server และ render session ต่อ โดยไม่มี force-close modal, ช่องเหตุผล, หรือ request `force: true`
+  - `packFlow.allowForceCloseWithMissingItems` ใน example config ตั้งเป็น `false`; กฎ import identity คงเดิมทั้งหมด
+- verification:
+  - automated tests ครอบคลุม persisted pass/warn block, no-record start, active-session duplicate/different AWB, AWB-only UI/no camera on rejection, AWB rescan ที่ 0 ชิ้น/partial scan, attempted forced close, normal close request หลังครบ, และ absence ของ frontend modal

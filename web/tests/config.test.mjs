@@ -32,6 +32,11 @@ test("pre-pack guide image rules are defined centrally", async () => {
   assert.equal(image.requiredAspectRatio, undefined);
 });
 
+test("pack flow disables force close with missing items by default", async () => {
+  const config = JSON.parse(await fs.readFile(configPath, "utf8"));
+  assert.equal(config.packFlow?.allowForceCloseWithMissingItems, false);
+});
+
 test("ocr config supports optional preprocessing and per-platform tuning", async () => {
   const config = JSON.parse(await fs.readFile(configPath, "utf8"));
   assert.equal(config.ocr?.preprocessPdf?.command, "ocrmypdf");

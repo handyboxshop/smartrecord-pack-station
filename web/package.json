@@ -8,7 +8,7 @@
     "dev:reset": "node scripts/dev-reset.mjs",
     "server": "node server/index.mjs",
     "server:check": "node scripts/server-check.mjs",
-    "check": "node --check server/index.mjs && node --check public/assets/app.js",
+    "check": "node --check server/index.mjs && node --check public/assets/app.js && node --check public/assets/configLifecycle.js && node --check public/assets/authRuntimeCleanup.js && node --check public/assets/cameraLifecycle.js",
     "start": "node server/index.mjs",
     "test": "node --test tests/*.test.mjs"
   }
