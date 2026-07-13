@@ -104,6 +104,7 @@
             <p class="eyebrow">เริ่มต้นออเดอร์ใหม่</p>
             <h1>เริ่มแพคออเดอร์</h1>
             <p class="muted">ต้องมีใบปะหน้าจากเมนู ปริ้นใบปะหน้า หรือ Connect / Import ก่อน ระบบจึงจะเปิด pack session และเริ่มบันทึกวิดีโอ</p>
+            <button type="button" class="secondary userManualTrigger" id="openUserManualBtn">คู่มือการใช้งาน</button>
           </div>
           <div class="scanWorkspace">
             <form class="scanBox" id="startForm">
@@ -116,18 +117,6 @@
               <div class="deviceSummary" id="deviceSummary">กำลังโหลด Settings...</div>
               <button type="submit">เริ่มแพค</button>
             </form>
-            <aside class="prePackGuide" aria-label="ตัวอย่างก่อนเริ่มแพค">
-              <div class="prePackGuideHead">
-                <b>ก่อนเริ่มแพคออเดอร์</b>
-                <span>ใบปะหน้าต้องอยู่ในเฟรม</span>
-              </div>
-              <img id="prePackGuideImg" src="/assets/prepack-label-required.png" alt="ตัวอย่างการจัดวางกล่อง สินค้า และใบปะหน้าก่อนเริ่มแพค">
-              <div class="prePackChecklist">
-                <span>มีใบปะหน้าจากระบบแล้ว</span>
-                <span>วางใบปะหน้าให้กล้องเห็น</span>
-                <span>กล่องและสินค้าอยู่ในพื้นที่แพค</span>
-              </div>
-            </aside>
           </div>
           <div class="demoButtons">
             <button type="button" data-demo-awb="SPX-TH-88213940">Shopee demo</button>
@@ -779,6 +768,43 @@
         <div class="receipt" id="labelPrintMeta"></div>
         <div class="dialogActions">
           <button type="button" id="labelPrintNowBtn">🖨 ปริ้น</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="userManualDialog">
+      <form method="dialog" class="detailDialog userManualDialogBox">
+        <div class="detailHead">
+          <div>
+            <p class="eyebrow">SMARTRECORD PACK STATION</p>
+            <h2>คู่มือการใช้งาน</h2>
+          </div>
+          <button value="close" class="secondary">ปิด</button>
+        </div>
+        <div class="userManualBody">
+          <section class="userManualSection">
+            <div class="userManualSectionHead">
+              <h3>ก่อนเริ่มแพคออเดอร์</h3>
+              <p>ใบปะหน้าต้องอยู่ในเฟรม</p>
+            </div>
+            <img id="userManualPrePackGuideImg" src="/assets/prepack-label-required.png" alt="ตัวอย่างการจัดวางกล่อง สินค้า และใบปะหน้าก่อนเริ่มแพค">
+            <div class="userManualChecklist">
+              <span>มีใบปะหน้าจากระบบแล้ว</span>
+              <span>วางใบปะหน้าให้กล้องเห็น</span>
+              <span>กล่องและสินค้าอยู่ในพื้นที่แพค</span>
+            </div>
+          </section>
+          <section class="userManualSection">
+            <div class="userManualSectionHead">
+              <h3>เริ่มแพคออเดอร์</h3>
+              <p>ทำตามลำดับเพื่อเปิด pack session และเริ่มบันทึกวิดีโอ</p>
+            </div>
+            <ol class="userManualSteps">
+              <li>สแกนหรือกรอกเลข AWB ที่หน้าเริ่มแพคออเดอร์</li>
+              <li>ตรวจสินค้าและสแกน SKU หรือ barcode ให้ครบตามรายการ</li>
+              <li>ยิง AWB ซ้ำเพื่อปิดกล่อง แล้วรอระบบบันทึกผล</li>
+            </ol>
+          </section>
         </div>
       </form>
     </dialog>

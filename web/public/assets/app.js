@@ -62,7 +62,9 @@ const el = {
   stages: document.querySelectorAll(".stage"),
   scanPanel: document.querySelector("#scanPanel"),
   packPanel: document.querySelector("#packPanel"),
-  prePackGuideImg: document.querySelector("#prePackGuideImg"),
+  openUserManualBtn: document.querySelector("#openUserManualBtn"),
+  userManualDialog: document.querySelector("#userManualDialog"),
+  userManualPrePackGuideImg: document.querySelector("#userManualPrePackGuideImg"),
   webcamVideo: document.querySelector("#webcamVideo"),
   noCamMsg: document.querySelector("#noCamMsg"),
   recBadge: document.querySelector("#recBadge"),
@@ -354,6 +356,7 @@ function bindEvents() {
     event.preventDefault();
     await startSession(el.awbInput.value);
   });
+  el.openUserManualBtn?.addEventListener("click", () => el.userManualDialog?.showModal());
 
   document.querySelectorAll("[data-demo-awb]").forEach((button) => {
     button.addEventListener("click", async () => {
@@ -599,7 +602,7 @@ function clearPermissionSensitiveDom() {
   ]) {
     if (node) node.value = "";
   }
-  for (const dialog of [el.settingsDialog, el.forceCloseDialog, el.importConfirmDialog, el.editImportedOrderDialog, el.labelPrintDialog, el.recordDetailDialog, el.warningDialog]) {
+  for (const dialog of [el.settingsDialog, el.forceCloseDialog, el.importConfirmDialog, el.editImportedOrderDialog, el.labelPrintDialog, el.recordDetailDialog, el.userManualDialog, el.warningDialog]) {
     try {
       if (dialog?.open) dialog.close();
     } catch {
@@ -614,7 +617,7 @@ function clearPermissionSensitiveDom() {
   if (el.webcamVideo) el.webcamVideo.srcObject = null;
   if (el.settingsCameraPreview) el.settingsCameraPreview.srcObject = null;
   el.cameraPreviewWrap?.classList.add("hidden");
-  if (el.prePackGuideImg) el.prePackGuideImg.src = "/assets/prepack-label-required.png";
+  if (el.userManualPrePackGuideImg) el.userManualPrePackGuideImg.src = "/assets/prepack-label-required.png";
   if (el.prePackImagePreview) el.prePackImagePreview.src = "/assets/prepack-label-required.png";
 }
 
@@ -2397,7 +2400,7 @@ function renderSettingsControls() {
 
 function applyPrePackGuideImage() {
   const url = state.config?.systemAssets?.prePackGuideImage?.url || "/assets/prepack-label-required.png";
-  if (el.prePackGuideImg) el.prePackGuideImg.src = url;
+  if (el.userManualPrePackGuideImg) el.userManualPrePackGuideImg.src = url;
   if (el.prePackImagePreview) el.prePackImagePreview.src = url;
 }
 
