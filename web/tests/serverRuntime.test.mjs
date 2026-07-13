@@ -381,6 +381,69 @@ printf '%s\\n' 'TH42078XMSOF1F'
   assert.equal(started.body.ok, true);
 });
 
+test("HTTP synthetic Shopee PDF import continues after a duplicate page and registers the new page", async (t) => {
+  const runtime = await createPrinterTestRuntime();
+  const ocrCommand = path.join(runtime.dir, "synthetic-ocr.sh");
+  const pdfCommand = path.join(runtime.dir, "synthetic-pdftoppm.sh");
+  await fs.writeFile(ocrCommand, `#!/bin/sh
+case "$1" in
+  *page-2.png)
+    printf '%s\\n' 'Shopee' 'THSYNTH000008' 'Shopee Order No. SHOP-SYN-016' 'Product Name' 'Synthetic item' 'Qty Total: 1'
+    ;;
+  *)
+    printf '%s\\n' 'Shopee' 'THSYNTH000007' 'Shopee Order No. SHOP-SYN-015' 'Product Name' 'Synthetic item' 'Qty Total: 1'
+    ;;
+esac
+`);
+  await fs.writeFile(pdfCommand, `#!/bin/sh
+for argument in "$@"; do output="$argument"; done
+: > "\${output}-1.png"
+: > "\${output}-2.png"
+`);
+  await fs.chmod(ocrCommand, 0o755);
+  await fs.chmod(pdfCommand, 0o755);
+
+  const config = JSON.parse(await fs.readFile(path.join(runtime.dir, "app-config.json"), "utf8"));
+  config.ocr.command = ocrCommand;
+  config.ocr.pdfCommand = pdfCommand;
+  config.ocr.preprocessPdf = { enabled: false };
+  await fs.writeFile(path.join(runtime.dir, "app-config.json"), JSON.stringify(config));
+
+  const port = nextPort();
+  const server = await startServer(port, runtime.env);
+  t.after(async () => {
+    await stopServer(server);
+    await fs.rm(runtime.dir, { recursive: true, force: true });
+  });
+
+  const admin = await login(port, "admin@test.local", "admin-password");
+  const headers = { Authorization: `Bearer ${admin.token}` };
+  const first = await requestRaw(port, "/api/orders/label/import?fileName=single-synthetic.png", {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "image/png" },
+    body: Buffer.from("synthetic label image")
+  });
+  assert.equal(first.status, 200);
+  assert.equal(first.body.data.imported[0].orderState, "created");
+  assert.equal(first.body.data.imported[0].labelState, "created");
+
+  const batch = await requestRaw(port, "/api/orders/label/import?fileName=synthetic-batch.pdf", {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/pdf" },
+    body: Buffer.from("synthetic pdf")
+  });
+  assert.equal(batch.status, 200);
+  assert.equal(batch.body.ok, true);
+  assert.equal(batch.body.data.importedCount, 2);
+  assert.equal(batch.body.data.imported[0].orderState, "already_exists");
+  assert.equal(batch.body.data.imported[0].labelState, "already_exists");
+  assert.equal(batch.body.data.imported[1].orderState, "created");
+  assert.equal(batch.body.data.imported[1].labelState, "created");
+
+  const persistedLabels = JSON.parse(await fs.readFile(path.join(runtime.dir, "labels.json"), "utf8"));
+  assert.equal(persistedLabels.length, 2);
+});
+
 test("storage verification enforces settings:manage and returns only safe status payloads", async (t) => {
   for (const [fixture, expected] of [
     ["success", { status: 200, code: undefined, storageStatus: "available" }],

@@ -1,5 +1,11 @@
 # Project Memory
 
+## 2026-07-14 — Shipping-label Duplicate-safe Print Import
+
+- what: Separated shipping-label order state (`created`, `already_exists`, `conflict`) from printable-label state (`created`, `already_exists`, `failed`); strengthened TikTok detection and fixed authenticated preview/print path handling.
+- root cause: clean-text-only TikTok matching, AWB-wide printable replacement, duplicate-order cleanup, and direct protected image URLs in `about:blank` made valid labels misclassify, disappear, or print blank.
+- correct: use strong TikTok Shop text or two independent secondary J&T/layout signals; retain AWB-only/custom review-required imports; dedupe printable pages by `AWB + orderNumber + page + labelIndex` without deletion; project legacy page PNG paths at read time; fetch print images with bearer auth into a Blob URL and revoke it after use. See `web/docs/PROJECT_MEMORY.md` for the runtime-level decision record and synthetic regression coverage.
+
 ## 2026-07-12 — PR-H1 M-1/M-2 Pack Guide Projection and Authenticated Runtime Cleanup
 
 - what: จำกัด pre-pack guide ที่ส่งผ่าน authenticated `/api/config` สำหรับผู้มี `pack:use` ให้เป็น allowlist แบบ explicit และเพิ่ม authenticated-runtime cleanup กลางสำหรับล้าง session/client state/media resources

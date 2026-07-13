@@ -850,11 +850,15 @@ async function importShippingLabel(req, url) {
   const safeName = sanitizeFilePart(path.basename(originalName, path.extname(originalName))) || "shipping-label";
   const ext = safeFileExt(originalName, req.headers["content-type"]);
   const labelsDir = path.join(rootDir, "local-nas", "labels", folderName);
-  const fileName = `${toCompactDate(savedAt)}_${safeName}${ext}`;
-  const filePath = path.join(labelsDir, fileName);
-  if (!filePath.startsWith(labelsDir)) return { ok: false, code: "INVALID_LABEL_PATH", message: "path ใบปะหน้าไม่ถูกต้อง" };
   await fs.mkdir(labelsDir, { recursive: true });
-  await fs.writeFile(filePath, bytes);
+  const savedFile = await writeUniqueLabelFile({
+    labelsDir,
+    baseName: `${toCompactDate(savedAt)}_${safeName}`,
+    ext,
+    bytes
+  });
+  if (!savedFile.ok) return savedFile;
+  const { fileName, filePath } = savedFile.data;
 
   const labelFile = {
     fileName,
@@ -863,7 +867,13 @@ async function importShippingLabel(req, url) {
     contentType: req.headers["content-type"] || contentType(fileName),
     importedAt: savedAt.toISOString()
   };
-  const pageFilesResult = await prepareLabelOcrFiles({ filePath, labelsDir, safeName, ext, config: config.ocr || {} });
+  const pageFilesResult = await prepareLabelOcrFiles({
+    filePath,
+    labelsDir,
+    safeName: path.basename(fileName, ext),
+    ext,
+    config: config.ocr || {}
+  });
   if (!pageFilesResult.ok) return { ...pageFilesResult, data: { labelFile } };
 
   const imported = [];
@@ -943,12 +953,20 @@ async function importShippingLabel(req, url) {
         order: orderResult.data,
         status: "imported"
       });
-      if (importedLabelResult.ok) labelsChanged = true;
+      const labelState = importedLabelResult.ok
+        ? importedLabelResult.data.labelState || "created"
+        : "failed";
+      if (labelState === "created") labelsChanged = true;
       imported.push({
         page: pageFile.page,
         labelIndex: labelIndex + 1,
         parsed: withoutRawText(parsed),
-        order: orderResult.data
+        order: orderResult.data,
+        orderState: orderResult.data.orderState || "created",
+        labelState,
+        ...(importedLabelResult.ok ? { label: importedLabelResult.data } : {
+          label: { state: "failed", code: importedLabelResult.code, message: importedLabelResult.message }
+        })
       });
     }
   }
@@ -960,37 +978,6 @@ async function importShippingLabel(req, url) {
       code: "LABEL_IMPORT_FAILED",
       message: "อ่านใบปะหน้าไม่สำเร็จ",
       data: { labelFile, errors }
-    };
-  }
-
-  if (
-    imported.length === 0
-    && errors.length === 0
-    && manualCorrections.length === 0
-    && skipped.length > 0
-    && skipped.every((item) => item.code === "ORDER_DUPLICATE_LABEL")
-  ) {
-    await cleanupRejectedLabelImport({
-      sourceFilePath: filePath,
-      pageFiles: pageFilesResult.data.pages,
-      preprocessedFilePath: pageFilesResult.data.preprocessedFilePath
-    });
-    return {
-      ok: false,
-      code: "DUPLICATE_LABEL",
-      message: "AWB + เลขออเดอร์ซ้ำในระบบ ไม่สามารถอัปโหลดใบปะหน้านี้ได้",
-      data: {
-        labelFile,
-        skipped,
-        manualCorrections,
-        errors,
-        warnings,
-        importedCount: 0,
-        skippedCount: skipped.length,
-        errorCount: 0,
-        totalLabels,
-        totalPages: pageFilesResult.data.pages.length
-      }
     };
   }
 
@@ -1019,6 +1006,24 @@ async function importShippingLabel(req, url) {
         ? `OCR อ่าน AWB ได้ แต่ยังขาดเลขออเดอร์ ${manualCorrections.length} รายการ`
       : `ไม่มีออเดอร์ใหม่จากใบปะหน้า (${skipped.length} รายการซ้ำ)`
   };
+}
+
+async function writeUniqueLabelFile({ labelsDir, baseName, ext, bytes }) {
+  for (let attempt = 0; attempt < 1000; attempt += 1) {
+    const suffix = attempt === 0 ? "" : `_${attempt + 1}`;
+    const fileName = `${baseName}${suffix}${ext}`;
+    const filePath = path.join(labelsDir, fileName);
+    if (!filePath.startsWith(labelsDir)) {
+      return { ok: false, code: "INVALID_LABEL_PATH", message: "path ใบปะหน้าไม่ถูกต้อง" };
+    }
+    try {
+      await fs.writeFile(filePath, bytes, { flag: "wx" });
+      return { ok: true, data: { fileName, filePath } };
+    } catch (error) {
+      if (error?.code !== "EEXIST") throw error;
+    }
+  }
+  return { ok: false, code: "LABEL_FILE_COLLISION", message: "บันทึกไฟล์ใบปะหน้าไม่สำเร็จ กรุณาลองใหม่อีกครั้ง" };
 }
 
 async function prepareLabelOcrFiles({ filePath, labelsDir, safeName, ext, config }) {
@@ -1050,23 +1055,6 @@ async function prepareLabelOcrFiles({ filePath, labelsDir, safeName, ext, config
       warnings: preprocessResult.data.warnings || []
     }
   };
-}
-
-async function cleanupRejectedLabelImport({ sourceFilePath = "", pageFiles = [], preprocessedFilePath = "" } = {}) {
-  const targets = new Set([
-    sourceFilePath,
-    preprocessedFilePath,
-    ...pageFiles.map((page) => page?.filePath || "")
-  ].filter(Boolean));
-
-  await Promise.all([...targets].map(async (target) => {
-    try {
-      if (!target.startsWith(path.join(rootDir, "local-nas", "labels"))) return;
-      await fs.rm(target, { force: true });
-    } catch {
-      // best-effort cleanup only
-    }
-  }));
 }
 
 function getRecoverableParsedLabels(parsedResult) {
@@ -1206,35 +1194,23 @@ async function labelsWithUrls(req) {
     platform: url.searchParams.get("platform") || ""
   });
   if (!listed.ok) return listed;
-  const activeImportedLabels = listed.data.labels.filter((label) => {
-    if (label.source !== "connect-import") return false;
-    const awb = String(label.awb || "").trim();
-    const status = String(label.status || "").trim().toLowerCase();
-    return Boolean(awb && status !== "skipped");
-  });
-  const uniquePrintableLabels = [];
-  const seenAwbs = new Set();
-  for (const label of activeImportedLabels) {
-    const awb = String(label.awb || "").trim();
-    if (!awb || seenAwbs.has(awb)) continue;
-    seenAwbs.add(awb);
-    uniquePrintableLabels.push(label);
-  }
-  const labels = await Promise.all(uniquePrintableLabels.map(async (label) => {
-    if (label.imageDataUrl) return { ...label, imageUrl: "" };
+  const labels = await Promise.all(listed.data.labels.map(async (label) => {
+    const printUrl = label.previewRelativePath || label.imageDataUrl ? createLabelFileUrl(req, label.id) : "";
+    if (label.imageDataUrl) return { ...label, imageUrl: "", printUrl };
     const imageDataUrl = await labelImageDataUrl(label);
     return {
       ...label,
       imageDataUrl,
-      imageUrl: imageDataUrl ? "" : createLabelFileUrl(req, label.id)
+      imageUrl: "",
+      printUrl
     };
   }));
   return {
     ...listed,
     data: {
       labels,
-      total: uniquePrintableLabels.length,
-      filtered: uniquePrintableLabels.length
+      total: listed.data.total,
+      filtered: listed.data.filtered
     }
   };
 }
@@ -1267,7 +1243,7 @@ function requireAnyPermission(token, permissions = []) {
 }
 
 async function labelImageDataUrl(label) {
-  const relativePath = label.relativePath || "";
+  const relativePath = label.previewRelativePath || label.relativePath || "";
   if (!relativePath) return "";
   const filePath = path.resolve(rootDir, relativePath);
   if (!filePath.startsWith(rootDir)) return "";
@@ -1292,9 +1268,19 @@ async function serveLabelFile(req, res, url) {
   const result = labelService.getLabel(labelId);
   if (!result.ok) return sendResult(res, result);
   const label = result.data;
-  const relativePath = label.relativePath || label.originalRelativePath || "";
+  const useOriginal = url.searchParams.get("original") === "1";
+  const relativePath = useOriginal
+    ? label.originalRelativePath || ""
+    : label.previewRelativePath || label.relativePath || "";
   if (!relativePath) {
-    sendJson(res, 404, apiErrorPayload("LABEL_FILE_NOT_FOUND", "ใบปะหน้านี้ไม่มีไฟล์ต้นฉบับ"));
+    const imageData = !useOriginal ? parseLabelImageDataUrl(label.imageDataUrl) : null;
+    if (imageData) {
+      sendBuffer(res, 200, imageData.bytes, imageData.contentType);
+      return;
+    }
+    sendJson(res, 404, apiErrorPayload("LABEL_FILE_NOT_FOUND", useOriginal
+      ? "ใบปะหน้านี้ไม่มีไฟล์ต้นฉบับ"
+      : "ใบปะหน้านี้ไม่มีภาพสำหรับพิมพ์"));
     return;
   }
 
@@ -1306,9 +1292,19 @@ async function serveLabelFile(req, res, url) {
 
   try {
     const content = await fs.readFile(filePath);
-    sendBuffer(res, 200, content, label.contentType || contentType(filePath));
+    sendBuffer(res, 200, content, contentType(filePath));
   } catch {
     sendJson(res, 404, apiErrorPayload("LABEL_FILE_MISSING", "ไม่พบไฟล์ใบปะหน้าบน storage"));
+  }
+}
+
+function parseLabelImageDataUrl(value) {
+  const match = /^data:(image\/[a-zA-Z0-9.+-]+);base64,([a-zA-Z0-9+/=]+)$/.exec(String(value || ""));
+  if (!match) return null;
+  try {
+    return { contentType: match[1], bytes: Buffer.from(match[2], "base64") };
+  } catch {
+    return null;
   }
 }
 

@@ -183,3 +183,72 @@ test("returns quantity 0 when OCR cannot find a valid quantity", () => {
   assert.equal(result.ok, true);
   assert.equal(result.data.quantity, 0);
 });
+
+test("parses a sanitized compact Lazada layout", () => {
+  const result = parseShippingLabelText(`
+    Lazada LEX
+    LEXDTEST0001
+    Order No.: 999999999900001
+    Name Qty SKU
+    Synthetic cabinet 2 SKU-SYNTH-01
+  `);
+
+  assert.equal(result.ok, true);
+  assert.equal(result.data.platform, "lazada");
+  assert.equal(result.data.awb, "LEXDTEST0001");
+  assert.equal(result.data.orderNumber, "999999999900001");
+  assert.equal(result.data.quantity, 2);
+});
+
+test("parses a sanitized full Lazada layout", () => {
+  const result = parseShippingLabelText(`
+    LEX
+    LEXDTEST0002
+    Receiver: Synthetic Receiver
+    LAZADA Order Number: 999999999900002
+    Name Qty SKU Unit Price
+    Synthetic enclosure 1 3CWDO-C2G-99 1000.00
+    Total: 1000.00
+  `);
+
+  assert.equal(result.ok, true);
+  assert.equal(result.data.platform, "lazada");
+  assert.equal(result.data.awb, "LEXDTEST0002");
+  assert.equal(result.data.orderNumber, "999999999900002");
+  assert.equal(result.data.sku, "3CWDO-C2G-99");
+});
+
+test("detects TikTok from a noisy strong TikTok Shop marker", () => {
+  const text = `
+    T1k Tok Sh00p
+    70000000001
+    Order ID: 999999999900003
+  `;
+
+  assert.equal(detectPlatform(text), "tiktok");
+});
+
+test("detects TikTok from multiple secondary J&T label signals without a TikTok word", () => {
+  const result = parseShippingLabelText(`
+    JTTHSYNTH0001
+    J&T Express
+    Order ID: 999999999900004
+    Product Name SKU Seller SKU Qty
+    Synthetic item 1 SKU-TIK-01 1
+    Qty Total: 1
+  `);
+
+  assert.equal(result.ok, true);
+  assert.equal(result.data.platform, "tiktok");
+  assert.equal(result.data.awb, "JTTHSYNTH0001");
+  assert.equal(result.data.orderNumber, "999999999900004");
+});
+
+test("does not classify a lone JTTH AWB as TikTok and keeps it recoverable", () => {
+  const result = parseShippingLabelText("JTTHSYNTH0002");
+
+  assert.equal(detectPlatform("JTTHSYNTH0002"), "");
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "LABEL_PLATFORM_UNKNOWN");
+  assert.equal(result.data.awb, "JTTHSYNTH0002");
+});

@@ -1,5 +1,16 @@
 # SmartRecord Pack Station Project Memory
 
+## 2026-07-14 — Label Platform Detection, Duplicate-safe Print Registration, and Authenticated Browser Print
+
+- what: Shipping-label OCR now detects TikTok from noisy strong `TikTok Shop` text or a threshold of independent J&T/TikTok layout signals; importing an existing `AWB + orderNumber` returns `orderState: already_exists` while the printable page is registered separately with `labelState: created|already_exists|failed`.
+- root cause: TikTok detection depended on clean text and a narrow fallback; the import flow treated a duplicate order as a fatal duplicate label, removed labels by AWB during re-registration, and hid distinct pages. Preview/print trusted an unnormalised `relativePath` and sent a bearer-protected URL directly into `about:blank`, which cannot carry the application Authorization header.
+- correct:
+  - TikTok requires a noisy/normalised `TikTok Shop` marker or at least two secondary signals (`JTTH` AWB, long `Order ID`, J&T text, recognised label layout); one weak J&T signal remains insufficient. Lazada/Shopee strong markers remain explicit. Unknown labels with a recoverable AWB import as `custom` with fallback fields and `reviewRequired: true`.
+  - Keep `AWB` globally unique, allow one order number to have multiple AWBs, and keep an AWB/order mismatch as `conflict`. Exact existing order identity does not create an order but must not stop that page or later PDF pages.
+  - Printable identity is `AWB + orderNumber + page + labelIndex`; repeated registration returns `already_exists` and never deletes a prior printable label. Legacy records are normalised only in the read/render projection: prefer `pageImageRelativePath` (or another image path) for preview/one-page print, retain `originalRelativePath` for original-file download, and infer image MIME from the selected path.
+  - Browser print opens its window synchronously, fetches the selected image with the authenticated request flow, prints a Blob object URL, and revokes the object URL after print/window close. Paper-size preference remains browser-local.
+- verification: synthetic parser, import, label-service, summary, and browser-print tests cover compact/full Lazada, noisy/secondary TikTok, recoverable unknown AWBs, independent duplicate/new pages, legacy path projection, and authenticated Blob printing. The full suite, including HTTP runtime tests on loopback, passed 181/181 on 2026-07-14.
+
 ## Brand
 
 - Current display brand: `HYD FURNITURE`

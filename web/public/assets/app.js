@@ -1,5 +1,6 @@
 import { buildImportResultSummary } from "./importResultSummary.js";
 import { loadBrowserPrintPreferences, saveBrowserPrintPreferences } from "./browserPrintPreferences.js";
+import { fetchPrintableLabelImage, renderPrintableLabelWindow } from "./labelPrint.js";
 import {
   advanceUploadProgress,
   buildPackStartPayload,
@@ -1118,15 +1119,15 @@ function openLabelPrintDialog(labelId, { autoPrint = false } = {}) {
   }
 }
 
-function printActiveLabel() {
+async function printActiveLabel() {
   const label = state.labels.find((item) => item.id === state.activeLabelPreviewId);
   if (!label) {
     toast("ไม่พบใบปะหน้าที่ต้องการพิมพ์");
     return;
   }
   state.pendingLabelAutoPrint = false;
-  const imageSrc = resolveLabelPreviewSrc(label);
-  if (!imageSrc) {
+  const hasPrintableImage = Boolean(label.printUrl || resolveLabelPreviewSrc(label));
+  if (!hasPrintableImage) {
     toast("ใบปะหน้านี้ยังไม่มีไฟล์สำหรับพิมพ์");
     return;
   }
@@ -1135,60 +1136,82 @@ function printActiveLabel() {
     toast("เบราว์เซอร์บล็อกหน้าต่าง Print กรุณาอนุญาต pop-up");
     return;
   }
-  const title = escapeHtml(label.awb || label.orderNumber || label.id);
-  printWindow.document.write(`
-    <html>
-      <head>
-        <title>Print ${title}</title>
-        <style>
-          @page {
-            size: ${browserPrintPageSize(browserPrintPreferences.paperSize)};
-            margin: 0;
-          }
-          html, body {
-            margin: 0;
-            padding: 0;
-            background: #fff;
-            width: 100%;
-            height: 100%;
-            overflow: hidden;
-          }
-          .sheet {
-            margin: 0;
-            padding: 0;
-            width: 100%;
-            height: 100vh;
-            display: flex;
-            align-items: flex-start;
-            justify-content: center;
-            overflow: hidden;
-            page-break-after: avoid;
-          }
-          img {
-            display: block;
-            width: auto;
-            max-width: 100%;
-            height: 100vh;
-            max-height: 100vh;
-            object-fit: contain;
-            object-position: top center;
-            margin: 0;
-            padding: 0;
-            page-break-inside: avoid;
-          }
-        </style>
-      </head>
-      <body>
-        <div class="sheet">
-          <img src="${escapeHtml(imageSrc)}" onload="window.print()" />
-        </div>
-        <script>
-          window.onafterprint = () => window.close();
-        </script>
-      </body>
-    </html>
-  `);
+
+  printWindow.document.write("<p>กำลังโหลดรูปใบปะหน้าสำหรับพิมพ์...</p>");
   printWindow.document.close();
+
+  let printableImage;
+  try {
+    printableImage = await fetchPrintableLabelImage({
+      printUrl: label.printUrl,
+      imageDataUrl: resolveLabelPreviewSrc(label),
+      authToken: state.authToken
+    });
+  } catch {
+    printWindow.close();
+    toast("ไม่สามารถโหลดรูปใบปะหน้าสำหรับพิมพ์ได้ กรุณาลองใหม่อีกครั้ง");
+    return;
+  }
+
+  const title = escapeHtml(label.awb || label.orderNumber || label.id);
+  try {
+    renderPrintableLabelWindow(printWindow, `
+      <html>
+        <head>
+          <title>Print ${title}</title>
+          <style>
+            @page {
+              size: ${browserPrintPageSize(browserPrintPreferences.paperSize)};
+              margin: 0;
+            }
+            html, body {
+              margin: 0;
+              padding: 0;
+              background: #fff;
+              width: 100%;
+              height: 100%;
+              overflow: hidden;
+            }
+            .sheet {
+              margin: 0;
+              padding: 0;
+              width: 100%;
+              height: 100vh;
+              display: flex;
+              align-items: flex-start;
+              justify-content: center;
+              overflow: hidden;
+              page-break-after: avoid;
+            }
+            img {
+              display: block;
+              width: auto;
+              max-width: 100%;
+              height: 100vh;
+              max-height: 100vh;
+              object-fit: contain;
+              object-position: top center;
+              margin: 0;
+              padding: 0;
+              page-break-inside: avoid;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="sheet">
+            <img src="${escapeHtml(printableImage.src)}" onload="window.print()" />
+          </div>
+          <script>
+            window.onafterprint = () => window.close();
+          </script>
+        </body>
+      </html>
+    `, printableImage.dispose);
+  } catch {
+    printableImage.dispose();
+    printWindow.close();
+    toast("ไม่สามารถเปิดหน้าต่างพิมพ์ได้ กรุณาลองใหม่อีกครั้ง");
+  }
 }
 
 function testBrowserPrint() {
@@ -1404,9 +1427,14 @@ async function importLabelOrder(event) {
       toast(warnings[0]);
     }
     if (order) {
-      el.importSummary.textContent = `นำเข้าจากใบปะหน้าแล้ว: ${order.awb} · ${parsed.platformLabel} · ${order.itemLines} รายการ`;
+      const firstImported = result.data.imported?.[0] || {};
+      el.importSummary.textContent = firstImported.orderState === "already_exists"
+        ? `ออเดอร์มีอยู่แล้ว: ${order.awb} · ${firstImported.labelState === "created" ? "เพิ่มใบปะหน้าสำหรับพิมพ์แล้ว" : "ใบปะหน้าสำหรับพิมพ์มีอยู่แล้ว"}`
+        : `นำเข้าจากใบปะหน้าแล้ว: ${order.awb} · ${parsed.platformLabel} · ${order.itemLines} รายการ`;
       el.awbInput.value = order.awb;
-      toast(`นำเข้าใบปะหน้า ${order.awb} สำเร็จ พร้อมยิงหน้า Pack Station`);
+      toast(firstImported.orderState === "already_exists"
+        ? `ออเดอร์ ${order.awb} มีอยู่แล้ว · ${firstImported.labelState === "created" ? "เพิ่มใบปะหน้าสำหรับพิมพ์แล้ว" : "ใบปะหน้าสำหรับพิมพ์มีอยู่แล้ว"}`
+        : `นำเข้าใบปะหน้า ${order.awb} สำเร็จ พร้อมยิงหน้า Pack Station`);
     } else if (!manualCorrections.length) {
       el.importSummary.textContent = result.message || "ไม่มีออเดอร์ใหม่จากใบปะหน้า";
       toast(result.message || "ไม่มีออเดอร์ใหม่จากใบปะหน้า");
@@ -1520,7 +1548,7 @@ function renderLabelImportPreviewInto(target, data) {
     target.innerHTML = `
       <div class="labelImportBatch">
         <b>ผลอ่านทั้งหมด ${data.totalLabels || imported.length + skipped.length + errors.length} รายการ จาก ${data.totalPages || "-"} หน้า</b>
-        ${imported.map((item) => labelImportResultRow("นำเข้าแล้ว", item.page, item.parsed, "success")).join("")}
+        ${imported.map((item) => labelImportResultRow(importedLabelStatus(item), item.page, item.parsed, item.labelState === "failed" ? "error" : "success")).join("")}
         ${skipped.map((item) => labelImportResultRow(item.message || "ข้าม", item.page, item.parsed, item.code === "ORDER_NUMBER_REQUIRED" ? "error" : "warn")).join("")}
         ${errors.map((item) => `
           <div class="labelImportResult error">
@@ -1563,6 +1591,16 @@ function labelImportResultRow(status, page, parsed, tone) {
       <small>${escapeHtml(status)} · Order ${escapeHtml(parsed?.orderNumber || "-")} · SKU ${escapeHtml(productSkuText(parsed?.productName, parsed?.sku))}</small>
     </div>
   `;
+}
+
+function importedLabelStatus(item = {}) {
+  const orderText = item.orderState === "already_exists" ? "ออเดอร์มีอยู่แล้ว" : "สร้างออเดอร์แล้ว";
+  const labelText = item.labelState === "already_exists"
+    ? "ใบปะหน้าสำหรับพิมพ์มีอยู่แล้ว"
+    : item.labelState === "failed"
+      ? "ใบปะหน้าสำหรับพิมพ์ผิดพลาด"
+      : "เพิ่มใบปะหน้าสำหรับพิมพ์แล้ว";
+  return `${orderText} · ${labelText}`;
 }
 
 function productSkuText(productName = "", sku = "") {

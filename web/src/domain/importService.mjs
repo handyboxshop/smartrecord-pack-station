@@ -193,6 +193,31 @@ function toSyncOrder(order) {
     const platform = normalizePlatform(parsed.platform || parsed.platformLabel || "custom");
     const buyer = String(parsed.customerName || "").trim() || "Unverified customer";
     const orderNumber = String(parsed.orderNumber || "").trim() || `AWB-${awb}`;
+    const identityFailure = validateOrderIdentity({ orders, awb, orderNumber });
+    if (identityFailure) {
+      if (identityFailure.code === "ORDER_DUPLICATE_LABEL") {
+        const existing = orders[awb];
+        return ok({
+          awb,
+          platform: existing?.platform || PLATFORM_LABELS[platform] || "ทั่วไป",
+          buyer: existing?.buyer || buyer,
+          orderNumber,
+          carrier: existing?.carrier || String(parsed.carrier || "").trim(),
+          itemLines: Array.isArray(existing?.items) ? existing.items.length : 0,
+          importedAt: existing?.importedAt || existing?.labelFile?.importedAt || "",
+          reviewRequired: Boolean(existing?.reviewRequired),
+          orderState: "already_exists"
+        }, "ออเดอร์มีอยู่แล้ว");
+      }
+      return {
+        ...identityFailure,
+        data: {
+          ...(identityFailure.data || {}),
+          orderState: "conflict"
+        }
+      };
+    }
+
     const sku = String(parsed.sku || "").trim();
     const productName = String(parsed.productName || "").trim() || "Unverified item from shipping label";
     const parsedQuantity = Number(parsed.quantity);
@@ -228,15 +253,23 @@ function toSyncOrder(order) {
     });
     if (!created.ok) return created;
 
+    const createdWithState = {
+      ...created,
+      data: {
+        ...created.data,
+        orderState: "created"
+      }
+    };
+
     if (reviewRequired) {
       const warning = "นำเข้าด้วยข้อมูลสำรอง กรุณาตรวจสอบข้อมูลออเดอร์ภายหลัง";
       return {
-        ...created,
+        ...createdWithState,
         message: created.message ? `${created.message} · ${warning}` : warning
       };
     }
 
-    return created;
+    return createdWithState;
   }
 
   function saveDraftLabelImport({ parsed = {}, labelFile = null, code = "", message = "" } = {}) {

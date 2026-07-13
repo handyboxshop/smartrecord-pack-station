@@ -58,11 +58,9 @@ export function parseShippingLabelTexts(input = "") {
 
 export function detectPlatform(input = "") {
   const text = normalizeOcrText(input);
-  if (/tiktok\s*shop/i.test(text)) return "tiktok";
-  if (/tiktok/i.test(text) && /(j&t|order\s+id:?\s*[0-9]{12,}|seller\s+sku|qty\s+total)/i.test(text)) return "tiktok";
-  if (/tiktok\s*sho[o0p]?/i.test(text)) return "tiktok";
+  if (hasStrongTiktokMarker(text) || countTiktokSecondarySignals(text) >= 2) return "tiktok";
   if (/\bLEX\b|LAZADA\s+Order\s+Number|lazada/i.test(text)) return "lazada";
-  if (/shopee/i.test(text)) return "shopee";
+  if (/shopee(?:\s+order\s+no\.?)?/i.test(text)) return "shopee";
   return "";
 }
 
@@ -96,8 +94,7 @@ function parseLazada(text) {
 
 function parseTiktok(text) {
   const orderNumber = matchFirst(text, [/Order\s+ID:?\s*([0-9]{12,})/i]);
-  const numericCodes = [...text.matchAll(/\b([0-9]{11,13})\b/g)].map((match) => match[1]);
-  const awb = numericCodes.find((code) => code !== orderNumber) || "";
+  const awb = extractTiktokAwb(text, orderNumber);
   return {
     awb,
     orderNumber,
@@ -112,7 +109,7 @@ function parseTiktok(text) {
 function parseTiktokBatch(text) {
   const orderNumbers = uniqueMatches(text, /Order\s+ID:?\s*([0-9]{12,})/gi).map(cleanCode);
   if (orderNumbers.length <= 1) return [];
-  const awbs = uniqueMatches(text, /\b([0-9]{11,13})\b/g)
+  const awbs = uniqueMatches(text, /\b(JTTH[A-Z0-9-]{8,}|[0-9]{11,13})\b/gi)
     .map(cleanCode)
     .filter((code) => !orderNumbers.includes(code));
   const skus = uniqueMatches(text, /\b((?=[0-9A-Z]*[A-Z])[0-9A-Z]{2,}-[0-9A-Z-]{1,})\b/gi).map(cleanCode);
@@ -136,6 +133,7 @@ function parseTiktokBatch(text) {
 
 function normalizeOcrText(value) {
   return String(value || "")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
     .replace(/\r/g, "\n")
     .replace(/[ \t]+/g, " ")
     .replace(/\n{3,}/g, "\n\n")
@@ -143,10 +141,39 @@ function normalizeOcrText(value) {
 }
 
 function extractRecoverableAwb(text) {
-  return cleanCode(matchFirst(text, [
+  const direct = cleanCode(matchFirst(text, [
     /\b(TH[A-Z0-9]{8,})\b/i,
-    /\b(LEXD?[A-Z0-9]{8,})\b/i
+    /\b(LEXD?[A-Z0-9]{8,})\b/i,
+    /\b(JTTH[A-Z0-9-]{8,})\b/i,
+    /(?:AWB|Tracking(?:\s+(?:No|Number))?|Waybill)\s*[:#]?\s*([A-Z0-9-]{8,})\b/i
   ]));
+  if (direct) return direct;
+
+  const orderNumbers = new Set(uniqueMatches(text, /Order\s+ID:?\s*([0-9]{12,})/gi));
+  return cleanCode(uniqueMatches(text, /\b([0-9]{11,13})\b/g)
+    .find((code) => !orderNumbers.has(code)) || "");
+}
+
+function extractTiktokAwb(text, orderNumber) {
+  const codes = uniqueMatches(text, /\b(JTTH[A-Z0-9-]{8,}|[0-9]{11,13})\b/gi).map(cleanCode);
+  return codes.find((code) => code !== cleanCode(orderNumber)) || "";
+}
+
+function hasStrongTiktokMarker(text) {
+  const compact = String(text || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+  return /t[i1l]k+t[o0]k+sh[o0][pob0]/.test(compact);
+}
+
+function countTiktokSecondarySignals(text) {
+  const signals = [
+    /\bJTTH[A-Z0-9-]{8,}\b/i,
+    /Order\s+I[D0]\s*:?\s*[0-9]{12,}/i,
+    /\bJ\s*[&+]\s*T\b|\bJT\s*Express\b/i,
+    /Product\s+Name\s+SKU\s+Seller\s+SKU\s+Qty|Qty\s+Total|Shipping\s+Date|Estimated\s+Date|In\s+transit\s+by/i
+  ];
+  return signals.reduce((count, pattern) => count + (pattern.test(text) ? 1 : 0), 0);
 }
 
 function incompleteLabel({ awb = "", rawText = "" } = {}) {
