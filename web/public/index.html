@@ -12,7 +12,14 @@
     <link rel="stylesheet" href="/assets/styles.css">
   </head>
   <body>
-    <section class="loginScreen" id="loginScreen">
+    <section class="authLoadingScreen" id="authLoadingScreen" aria-live="polite" aria-busy="true" aria-hidden="false">
+      <div class="authLoadingCard">
+        <span class="authLoadingSpinner" aria-hidden="true"></span>
+        <p>กำลังตรวจสอบการเข้าสู่ระบบ...</p>
+      </div>
+    </section>
+
+    <section class="loginScreen hidden" id="loginScreen">
       <div class="loginShell">
         <div class="loginFormPane">
           <form class="loginCard" id="loginForm" novalidate>
