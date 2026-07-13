@@ -803,7 +803,7 @@ function renderSyncOrders() {
     ` : "";
     return `
       <${rowTag}${rowType} class="syncOrderRow ${order.alreadyIn ? "already" : ""}" data-awb="${escapeHtml(order.awb)}"${rowInteractive}>
-        <span class="syncCheck">${order.draft ? "รอแก้ไข" : (order.alreadyIn ? "นำเข้าแล้ว" : "")}</span>
+        <span class="syncCheck">${order.draft ? "รอแก้ไข" : (order.reviewRequired ? "ต้องตรวจสอบ" : (order.alreadyIn ? "นำเข้าแล้ว" : ""))}</span>
         <span class="syncOrderBody">
           <span class="syncOrderTop">
             <b>${escapeHtml(order.awb)}</b>
@@ -819,7 +819,7 @@ function renderSyncOrders() {
           </span>
         </span>
         <span class="syncRowActions">
-          <em>${escapeHtml(order.draft ? "draft" : (order.status || "ready"))}</em>
+          <em>${escapeHtml(order.draft ? "draft" : (order.reviewRequired ? "needs review" : (order.status || "ready")))}</em>
           ${importedActions}
         </span>
       </${rowTag}>

@@ -117,7 +117,7 @@ function toSyncOrder(order) {
     return ok({ imported, skipped, importedCount: imported.length });
   }
 
-  function createManualOrder({ awb = "", platform = "custom", buyer = "", items = 1, orderNumber = "", carrier = "", itemLines = [], labelFile = null, allowBlankSku = false } = {}) {
+  function createManualOrder({ awb = "", platform = "custom", buyer = "", items = 1, orderNumber = "", carrier = "", itemLines = [], labelFile = null, allowBlankSku = false, reviewRequired = false } = {}) {
     const cleanAwb = String(awb).trim();
     const cleanPlatform = String(platform).trim().toLowerCase();
     const cleanBuyer = String(buyer).trim();
@@ -148,7 +148,8 @@ function toSyncOrder(order) {
       orderNumber: cleanOrderNumber,
       carrier: String(carrier || "").trim(),
       labelFile,
-      importedAt: labelFile?.importedAt || new Date().toISOString()
+      importedAt: labelFile?.importedAt || new Date().toISOString(),
+      ...(reviewRequired ? { reviewRequired: true } : {})
     };
     const linkedAwbs = findAwbsByOrderNumber({ orders, orderNumber: cleanOrderNumber });
     const allowMultiAwb = Boolean(cleanOrderNumber && linkedAwbs.length);
@@ -160,7 +161,8 @@ function toSyncOrder(order) {
       carrier: meta.carrier,
       labelFile,
       importedAt: meta.importedAt,
-      items: itemsResult.data
+      items: itemsResult.data,
+      ...(reviewRequired ? { reviewRequired: true } : {})
     };
     pool.unshift({ ...meta, alreadyIn: true, manual: true, labelImport: Boolean(labelFile) });
 
@@ -178,39 +180,56 @@ function toSyncOrder(order) {
       importedAt: meta.importedAt,
       labelFile,
       allowMultiAwb,
-      linkedAwbs
+      linkedAwbs,
+      ...(reviewRequired ? { reviewRequired: true } : {})
     }, successMessage);
   }
 
   function createOrderFromShippingLabel({ parsed, labelFile = null } = {}) {
     if (!parsed) return fail("LABEL_DATA_REQUIRED", "ไม่พบข้อมูลใบปะหน้าที่อ่านได้");
-    if (!String(parsed.productName || "").trim()) {
-      return fail("PRODUCT_NAME_REQUIRED", "อ่านใบปะหน้าได้บางส่วน แต่ไม่มีชื่อสินค้า กรุณาแก้ไข/กรอกข้อมูลก่อนนำเข้า", { parsed });
-    }
-    if (!Number.isInteger(Number(parsed.quantity)) || Number(parsed.quantity) < 1) {
-      return fail("QTY_REQUIRED", "อ่านใบปะหน้าได้บางส่วน แต่ไม่มีจำนวนสินค้า กรุณาแก้ไข/กรอกข้อมูลก่อนนำเข้า", { parsed });
-    }
-    const missingSku = !String(parsed.sku || "").trim();
+    const awb = String(parsed.awb || "").trim();
+    if (!awb) return fail("AWB_REQUIRED", "กรุณากรอกเลข AWB / Order ID");
+
+    const platform = normalizePlatform(parsed.platform || parsed.platformLabel || "custom");
+    const buyer = String(parsed.customerName || "").trim() || "Unverified customer";
+    const orderNumber = String(parsed.orderNumber || "").trim() || `AWB-${awb}`;
+    const sku = String(parsed.sku || "").trim();
+    const productName = String(parsed.productName || "").trim() || "Unverified item from shipping label";
+    const parsedQuantity = Number(parsed.quantity);
+    const hasValidOcrQuantity = Number.isInteger(parsedQuantity) && parsedQuantity > 0;
+    const quantity = hasValidOcrQuantity
+      ? parsedQuantity
+      : 1;
+    const reviewRequired = !String(parsed.platform || parsed.platformLabel || "").trim()
+      || !hasValidOcrQuantity
+      || requiresOrderReview({
+        platform,
+        buyer,
+        orderNumber,
+        itemLines: [{ sku, name: productName, qty: quantity, barcode: sku || awb }],
+        submittedItemLines: [{ sku, name: productName, qty: quantity, barcode: sku || awb }]
+      });
     const created = createManualOrder({
-      awb: parsed.awb,
-      platform: parsed.platform,
-      buyer: parsed.customerName || "ไม่พบชื่อลูกค้า",
-      orderNumber: parsed.orderNumber,
+      awb,
+      platform,
+      buyer,
+      orderNumber,
       carrier: parsed.carrier,
-      items: parsed.quantity,
+      items: quantity,
       itemLines: [{
-        sku: parsed.sku,
-        name: parsed.productName,
-        qty: parsed.quantity,
-        barcode: parsed.sku || parsed.awb
+        sku,
+        name: productName,
+        qty: quantity,
+        barcode: sku || awb
       }],
       labelFile,
-      allowBlankSku: missingSku
+      allowBlankSku: !sku,
+      reviewRequired
     });
     if (!created.ok) return created;
 
-    if (missingSku) {
-      const warning = "ไม่มี SKU กรุณาแก้ไข/กรอกข้อมูล หรือไม่กรอกก็ได้";
+    if (reviewRequired) {
+      const warning = "นำเข้าด้วยข้อมูลสำรอง กรุณาตรวจสอบข้อมูลออเดอร์ภายหลัง";
       return {
         ...created,
         message: created.message ? `${created.message} · ${warning}` : warning
@@ -278,6 +297,13 @@ function toSyncOrder(order) {
       ignoreAwb: cleanAwb
     });
     if (identityFailure) return identityFailure;
+    const reviewRequired = requiresOrderReview({
+      platform: cleanPlatform,
+      buyer: cleanBuyer,
+      orderNumber: cleanOrderNumber,
+      itemLines: cleanedItemLines,
+      submittedItemLines: itemLines
+    });
 
     if (draft) {
       draft.platform = cleanPlatform;
@@ -291,6 +317,7 @@ function toSyncOrder(order) {
       draft.barcode = cleanedItemLines[0]?.barcode || cleanAwb;
       draft.draftCode = "";
       draft.draftMessage = "";
+      applyReviewRequired(draft, reviewRequired);
 
       if (cleanedItemLines.length === 0) {
         return ok(toSyncOrder(draft), "บันทึกร่างใบปะหน้าแล้ว");
@@ -303,7 +330,8 @@ function toSyncOrder(order) {
         carrier: cleanCarrier,
         labelFile: draft.labelFile || null,
         importedAt: draft.importedAt || new Date().toISOString(),
-        items: cleanedItemLines
+        items: cleanedItemLines,
+        ...(reviewRequired ? { reviewRequired: true } : {})
       };
       draftLabelImports.splice(draftIndex, 1);
     } else {
@@ -312,6 +340,7 @@ function toSyncOrder(order) {
       order.orderNumber = cleanOrderNumber;
       order.carrier = cleanCarrier;
       order.items = cleanedItemLines;
+      applyReviewRequired(order, reviewRequired);
     }
 
     if (meta) {
@@ -325,6 +354,7 @@ function toSyncOrder(order) {
       meta.productName = cleanedItemLines[0]?.name || "";
       meta.barcode = cleanedItemLines[0]?.barcode || "";
       meta.alreadyIn = true;
+      applyReviewRequired(meta, reviewRequired);
       if ("draft" in meta) {
         meta.draft = false;
         meta.status = "ready";
@@ -421,6 +451,33 @@ function normalizeItemLinesWithOptions(lines, awb, { allowBlankSku = false } = {
       };
     })
     .filter(Boolean);
+}
+
+function requiresOrderReview({ platform = "", buyer = "", orderNumber = "", itemLines = [], submittedItemLines = [] } = {}) {
+  const cleanPlatform = String(platform || "").trim().toLowerCase();
+  const cleanBuyer = String(buyer || "").trim();
+  const cleanOrderNumber = String(orderNumber || "").trim();
+  if (!Object.hasOwn(PLATFORM_LABELS, cleanPlatform)) return true;
+  if (cleanBuyer === "Unverified customer") return true;
+  if (/^AWB-/i.test(cleanOrderNumber)) return true;
+  if (!Array.isArray(itemLines) || itemLines.length === 0) return true;
+
+  return itemLines.some((item, index) => {
+    const sku = String(item?.sku || "").trim();
+    const name = String(item?.name || item?.productName || "").trim();
+    const qty = Number(item?.qty || item?.quantity || 0);
+    const submittedBarcode = String(submittedItemLines?.[index]?.barcode || "").trim();
+    return name === "Unverified item from shipping label"
+      || !Number.isInteger(qty)
+      || qty < 1
+      || (!sku && !submittedBarcode);
+  });
+}
+
+function applyReviewRequired(record, reviewRequired) {
+  if (!record) return;
+  if (reviewRequired) record.reviewRequired = true;
+  else delete record.reviewRequired;
 }
 
 function resolveOrderItems({ meta = null, awb = "", itemLines = [], count = 0, demoMode = false, allowBlankSku = false } = {}) {

@@ -336,6 +336,51 @@ test("OCR diagnostic fixtures are ignored outside NODE_ENV=test", async (t) => {
   assert.equal(response.body.data.checks.ocr.code, "OCR_RUNTIME_UNAVAILABLE");
 });
 
+test("HTTP shipping-label import persists an AWB-only fallback order that can start packing", async (t) => {
+  const runtime = await createPrinterTestRuntime();
+  const ocrCommand = path.join(runtime.dir, "fake-ocr.sh");
+  await fs.writeFile(ocrCommand, `#!/bin/sh
+printf '%s\\n' 'TH42078XMSOF1F'
+`);
+  await fs.chmod(ocrCommand, 0o755);
+  const config = JSON.parse(await fs.readFile(path.join(runtime.dir, "app-config.json"), "utf8"));
+  config.ocr.command = ocrCommand;
+  await fs.writeFile(path.join(runtime.dir, "app-config.json"), JSON.stringify(config));
+
+  const port = nextPort();
+  const server = await startServer(port, runtime.env);
+  t.after(async () => {
+    await stopServer(server);
+    await fs.rm(runtime.dir, { recursive: true, force: true });
+  });
+
+  const admin = await login(port, "admin@test.local", "admin-password");
+  const imported = await requestRaw(port, "/api/orders/label/import?fileName=awb-only.png", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${admin.token}`, "Content-Type": "image/png" },
+    body: Buffer.from("not-an-image-needed-by-fake-ocr")
+  });
+  assert.equal(imported.status, 200);
+  assert.equal(imported.body.ok, true);
+  assert.equal(imported.body.data.importedCount, 1);
+  assert.equal(imported.body.data.order.awb, "TH42078XMSOF1F");
+  assert.equal(imported.body.data.order.orderNumber, "AWB-TH42078XMSOF1F");
+  assert.equal(imported.body.data.order.reviewRequired, true);
+
+  const persistedOrders = JSON.parse(await fs.readFile(path.join(runtime.dir, "orders.json"), "utf8"));
+  assert.equal(persistedOrders.TH42078XMSOF1F.reviewRequired, true);
+  assert.equal(persistedOrders.TH42078XMSOF1F.orderNumber, "AWB-TH42078XMSOF1F");
+
+  const packer = await login(port, "packer@test.local", "pack-password");
+  const started = await requestJson(port, "/api/pack/start", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${packer.token}`, "Content-Type": "application/json" },
+    body: { awb: "TH42078XMSOF1F" }
+  });
+  assert.equal(started.status, 200);
+  assert.equal(started.body.ok, true);
+});
+
 test("storage verification enforces settings:manage and returns only safe status payloads", async (t) => {
   for (const [fixture, expected] of [
     ["success", { status: 200, code: undefined, storageStatus: "available" }],
@@ -493,6 +538,26 @@ function requestJson(port, pathname, { method = "GET", headers = {}, body } = {}
     });
     req.on("error", reject);
     if (body) req.write(JSON.stringify(body));
+    req.end();
+  });
+}
+
+function requestRaw(port, pathname, { method = "GET", headers = {}, body } = {}) {
+  return new Promise((resolve, reject) => {
+    const req = http.request(`http://127.0.0.1:${port}${pathname}`, { method, headers }, (res) => {
+      const chunks = [];
+      res.on("data", (chunk) => chunks.push(chunk));
+      res.on("end", () => {
+        const text = Buffer.concat(chunks).toString("utf8");
+        try {
+          resolve({ status: res.statusCode || 0, headers: res.headers, body: JSON.parse(text) });
+        } catch (error) {
+          reject(new Error(`response is not JSON: ${error.message} :: ${text.slice(0, 200)}`));
+        }
+      });
+    });
+    req.on("error", reject);
+    if (body) req.write(body);
     req.end();
   });
 }

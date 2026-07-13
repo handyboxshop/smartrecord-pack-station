@@ -15,7 +15,14 @@ export function parseShippingLabelTexts(input = "") {
   if (!text) return fail("LABEL_TEXT_REQUIRED", "ไม่พบข้อความจาก OCR");
 
   const platform = detectPlatform(text);
-  if (!platform) return fail("LABEL_PLATFORM_UNKNOWN", "แยกแพลตฟอร์มจากใบปะหน้าไม่ได้");
+  if (!platform) {
+    const awb = extractRecoverableAwb(text);
+    return fail(
+      "LABEL_PLATFORM_UNKNOWN",
+      "แยกแพลตฟอร์มจากใบปะหน้าไม่ได้",
+      awb ? incompleteLabel({ awb, rawText: text }) : null
+    );
+  }
 
   if (platform === "tiktok") {
     const labels = parseTiktokBatch(text);
@@ -133,6 +140,28 @@ function normalizeOcrText(value) {
     .replace(/[ \t]+/g, " ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+function extractRecoverableAwb(text) {
+  return cleanCode(matchFirst(text, [
+    /\b(TH[A-Z0-9]{8,})\b/i,
+    /\b(LEXD?[A-Z0-9]{8,})\b/i
+  ]));
+}
+
+function incompleteLabel({ awb = "", rawText = "" } = {}) {
+  return {
+    platform: "",
+    platformLabel: "",
+    orderNumber: "",
+    awb,
+    customerName: "",
+    sku: "",
+    productName: "",
+    quantity: 0,
+    carrier: "",
+    rawText
+  };
 }
 
 function matchFirst(text, patterns) {

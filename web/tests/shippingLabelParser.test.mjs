@@ -142,6 +142,16 @@ test("detects unknown label text as unsupported", () => {
   assert.equal(result.code, "LABEL_PLATFORM_UNKNOWN");
 });
 
+test("returns a recoverable AWB-only partial label when platform OCR is missing", () => {
+  const result = parseShippingLabelTexts("TH42078XMSOF1F");
+
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "LABEL_PLATFORM_UNKNOWN");
+  assert.equal(result.data.awb, "TH42078XMSOF1F");
+  assert.equal(result.data.platform, "");
+  assert.equal(result.data.orderNumber, "");
+});
+
 test("returns recoverable partial data when AWB is found but order number is missing", () => {
   const result = parseShippingLabelTexts(`
     LEX DOF H-CJM-A1 LEX
