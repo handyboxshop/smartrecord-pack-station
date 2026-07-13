@@ -21,16 +21,15 @@
   - ระบบจะ fallback ไปใช้ PDF ต้นฉบับต่อได้ ถ้า `continueOnSoftFail=true`
   - warning จะถูกส่งกลับมาให้ฝั่ง client รับรู้
 - OCR config รองรับ per-platform tuning ผ่าน `ocr.platforms.shopee|lazada|tiktok`
-- OCR import จะไม่สร้างออเดอร์ถ้าไม่มี `orderNumber`
-- OCR / shipping label import จะถือว่าใช้ได้เมื่อมี `AWB` + `orderNumber`
+- OCR / shipping label import จะสร้าง persistent order ทันทีเมื่อมี `AWB` ที่ไม่ว่าง แม้ OCR จะอ่าน field อื่นไม่ครบ
+- เมื่อไม่มี `orderNumber` ใช้ deterministic fallback `AWB-${awb}` เพื่อรักษา identity contract โดยไม่ชน AWB อื่น
 - ถ้าไม่มี `SKU`:
   - ไม่ block import
   - ให้ import ได้ตามปกติ
   - ให้ส่ง warning กลับไปที่ UI ว่า `ไม่มี SKU กรุณาแก้ไข/กรอกข้อมูล หรือไม่กรอกก็ได้`
-- แต่ถ้า OCR อ่าน `awb` ได้แล้วและยังไม่มี `orderNumber`:
-  - server ต้องส่ง partial parsed data กลับมา
-  - client ต้องพา user ไปกรอกเลขออเดอร์แบบ manual correction
-  - ห้ามปล่อยผ่านเป็นออเดอร์ไม่สมบูรณ์
+- Field OCR ที่ขาดสำหรับ shipping label ใช้ fallback: platform `custom`, buyer `Unverified customer`, SKU ว่าง, product `Unverified item from shipping label`, quantity `1`, และ barcode เป็น AWB เมื่อ SKU ว่าง
+- Orders ที่ใช้ fallback มี `reviewRequired: true`; รวม OCR quantity ที่หาย/ไม่ใช่ positive integer แม้จะ persist quantity fallback เป็น `1`; แสดงให้ตรวจสอบภายหลังได้ แต่ไม่ block การเริ่ม pack session
+- เมื่อแก้ไข order ที่นำเข้ามา ระบบคำนวณ `reviewRequired` ใหม่จาก platform, buyer, order number และ item lines; จะลบ field นี้ออกเมื่อแก้ fallback/incomplete value ครบแล้ว โดย SKU ว่างเพียงอย่างเดียวไม่ต้อง review หากมี barcode ใช้งานได้
 - ค่าเริ่มต้น storage ตอน development ให้ใช้ `local-machine`
 - `NAS host` หรือ `IP` เป็นแค่ label/ปลายทางแสดงผล ไม่ใช่ path ที่เขียนไฟล์จริง
 - path ที่ระบบเขียนไฟล์จริง ต้องดูจาก `localPath` หรือ mounted path ที่ user กรอก
@@ -39,11 +38,7 @@
 - Device Settings เก็บ storage target, custom path, camera และ scanner ไว้เฉพาะ Browser/คอมพิวเตอร์ของ Pack Station นั้น ไม่ใช่ค่า shared บน server
 - การกดบันทึก Device Settings จะให้ SmartRecord server ตรวจสอบปลายทาง storage; API/UI ต้องคืนเฉพาะสถานะและข้อความปลอดภัย ห้ามส่ง resolved path, write path หรือ raw filesystem error กลับ Browser
 - NAS target ที่ยังต้อง mount ต้องคืนสถานะ `STORAGE_MOUNT_UNAVAILABLE` และห้ามยืนยัน writable จาก local fallback
-- ใบปะหน้าที่อัปโหลดผ่าน `Connect / Import` แล้ว OCR ได้บางส่วน แต่ยังไม่พอสร้าง `ORDER_DB`
-  - ต้องไม่หายจากระบบ
-  - ต้องถูกเก็บเป็น `draft label import`
-  - ต้องแก้ไข/ลบต่อได้จากหน้า `Connect / Import`
-  - ถ้า user แก้ข้อมูลครบแล้ว ค่อย promote เข้า `ORDER_DB`
+- AWB-detected shipping labels ไม่ใช้ in-memory draft เป็น source of truth: order และ label ต้องถูก persist ผ่าน existing order/label persistence flow ทันที
 
 ## Duplicate / Conflict Rules
 

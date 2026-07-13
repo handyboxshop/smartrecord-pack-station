@@ -1071,7 +1071,6 @@ async function cleanupRejectedLabelImport({ sourceFilePath = "", pageFiles = [],
 
 function getRecoverableParsedLabels(parsedResult) {
   if (!parsedResult || parsedResult.ok) return null;
-  if (parsedResult.code !== "LABEL_ORDER_NOT_FOUND") return null;
   const partial = parsedResult.data;
   if (!partial?.awb) return null;
   return [partial];

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createImportService } from "../src/domain/importService.mjs";
+import { createPackService } from "../src/domain/packService.mjs";
 
 function itemLine({ sku = "CAB-WALL-2D-60X32X24", name = "ตู้แขวนผนัง 2 ประตู 60x32x24 ซม.", qty = 1, barcode = sku } = {}) {
   return { sku, name, qty, barcode };
@@ -256,9 +257,10 @@ test("shipping label import creates order with parsed item and label attachment"
     barcode: "3CWWV-3"
   });
   assert.equal(orders["798548223255"].labelFile.fileName, "label.png");
+  assert.equal(orders["798548223255"].reviewRequired, undefined);
 });
 
-test("shipping label import rejects AWB without order number", () => {
+test("shipping label import creates a review-required order when order number is missing", () => {
   const orders = {};
   const service = createImportService({ orders, syncOrders: [] });
   const created = service.createOrderFromShippingLabel({
@@ -274,9 +276,10 @@ test("shipping label import rejects AWB without order number", () => {
     }
   });
 
-  assert.equal(created.ok, false);
-  assert.equal(created.code, "ORDER_NUMBER_REQUIRED");
-  assert.equal(orders["798548223255"], undefined);
+  assert.equal(created.ok, true);
+  assert.equal(created.data.reviewRequired, true);
+  assert.equal(orders["798548223255"].orderNumber, "AWB-798548223255");
+  assert.equal(orders["798548223255"].reviewRequired, true);
 });
 
 test("sync order list exposes imported date for manual label imports", () => {
@@ -339,8 +342,9 @@ test("shipping label duplicate is decided by order number and AWB", () => {
   assert.match(conflict.message, /เลขออเดอร์ไม่ตรง/);
 });
 
-test("shipping label import allows missing sku but still rejects missing product name or qty", () => {
-  const service = createImportService({ orders: {}, syncOrders: [] });
+test("shipping label import uses safe fallback values for incomplete OCR fields", () => {
+  const orders = {};
+  const service = createImportService({ orders, syncOrders: [] });
 
   const missingSku = service.createOrderFromShippingLabel({
     parsed: {
@@ -355,34 +359,123 @@ test("shipping label import allows missing sku but still rejects missing product
     }
   });
   assert.equal(missingSku.ok, true);
-  assert.match(missingSku.message, /ไม่มี SKU/);
+  assert.equal(missingSku.data.reviewRequired, undefined);
   assert.equal(missingSku.data.awb, "798548223255");
+  assert.equal(orders["798548223255"].items[0].sku, "");
+  assert.equal(orders["798548223255"].items[0].barcode, "798548223255");
 
-  assert.equal(service.createOrderFromShippingLabel({
+  const missingProductName = service.createOrderFromShippingLabel({
     parsed: {
       platform: "tiktok",
       orderNumber: "584452252146042306",
-      awb: "798548223255",
+      awb: "798548223256",
       customerName: "ช่างกอล์ฟ",
       productName: "",
       sku: "3CWWV-3",
       quantity: 1,
       carrier: "J&T Express"
     }
-  }).code, "PRODUCT_NAME_REQUIRED");
+  });
+  assert.equal(missingProductName.ok, true);
+  assert.equal(orders["798548223256"].items[0].name, "Unverified item from shipping label");
 
-  assert.equal(service.createOrderFromShippingLabel({
+  const invalidQuantities = [
+    { awb: "798548223257", quantity: undefined, label: "missing" },
+    { awb: "798548223258", quantity: 0, label: "zero" },
+    { awb: "798548223259", quantity: "not-a-number", label: "text" }
+  ];
+  for (const { awb, quantity, label } of invalidQuantities) {
+    const imported = service.createOrderFromShippingLabel({
+      parsed: {
+        platform: "tiktok",
+        orderNumber: "584452252146042306",
+        awb,
+        customerName: "ช่างกอล์ฟ",
+        productName: "ตู้ไซด์กันน้ำ",
+        sku: "3CWWV-3",
+        quantity,
+        carrier: "J&T Express"
+      }
+    });
+    assert.equal(imported.ok, true, label);
+    assert.equal(orders[awb].items[0].qty, 1, label);
+    assert.equal(orders[awb].reviewRequired, true, label);
+  }
+
+  const missingBuyer = service.createOrderFromShippingLabel({
     parsed: {
-      platform: "tiktok",
+      platform: "",
       orderNumber: "584452252146042306",
-      awb: "798548223255",
-      customerName: "ช่างกอล์ฟ",
+      awb: "798548223260",
+      customerName: "",
       productName: "ตู้ไซด์กันน้ำ",
       sku: "3CWWV-3",
-      quantity: 0,
+      quantity: 1,
       carrier: "J&T Express"
     }
-  }).code, "QTY_REQUIRED");
+  });
+  assert.equal(missingBuyer.ok, true);
+  assert.equal(orders["798548223260"].platform, "ทั่วไป");
+  assert.equal(orders["798548223260"].buyer, "Unverified customer");
+});
+
+test("fallback-created shipping-label order can start a pack session", () => {
+  const orders = {};
+  const imported = createImportService({ orders, syncOrders: [] }).createOrderFromShippingLabel({
+    parsed: { awb: "TH42078XMSOF1F" },
+    labelFile: { fileName: "label.png", relativePath: "local-nas/labels/label.png" }
+  });
+  assert.equal(imported.ok, true);
+
+  const packService = createPackService({
+    orders,
+    records: [],
+    config: {
+      station: { defaultStationId: "STATION-07" },
+      employees: { defaultEmployeeId: "EMP-0012" },
+      packFlow: { requireLabelBeforePack: true, closeBoxByRescanningAwb: true },
+      upload: { defaultStorageTargetId: "local-machine", storageTargets: [{ id: "local-machine", label: "Local", provider: "local", host: "localhost", isDefault: true }] }
+    }
+  });
+  assert.equal(packService.startPackSession({ awb: "TH42078XMSOF1F" }).ok, true);
+});
+
+test("updating a fallback order clears review metadata only after all fallback values are resolved", () => {
+  const orders = {};
+  const service = createImportService({ orders, syncOrders: [] });
+  const awb = "TH42078XMSOF1F";
+  const created = service.createOrderFromShippingLabel({ parsed: { awb } });
+  assert.equal(created.ok, true);
+  assert.equal(orders[awb].reviewRequired, true);
+
+  const stillNeedsReview = service.updateImportedOrder({
+    awb,
+    platform: "shopee",
+    buyer: "ลูกค้าทดสอบ",
+    orderNumber: "260707376YX4E3",
+    itemLines: [{ sku: "", name: "Unverified item from shipping label", qty: 1, barcode: awb }]
+  });
+  assert.equal(stillNeedsReview.ok, true);
+  assert.equal(orders[awb].reviewRequired, true);
+  assert.equal(service.sync({ platform: "all", status: "ready" }).data.orders.find((item) => item.awb === awb).reviewRequired, true);
+
+  const resolved = service.updateImportedOrder({
+    awb,
+    platform: "shopee",
+    buyer: "ลูกค้าทดสอบ",
+    orderNumber: "260707376YX4E3",
+    itemLines: [{ sku: "", name: "ตู้เหล็กมาตรฐาน", qty: 1, barcode: awb }]
+  });
+  assert.equal(resolved.ok, true);
+  assert.equal(orders[awb].reviewRequired, undefined);
+  assert.equal(resolved.data.reviewRequired, undefined);
+  assert.equal(service.sync({ platform: "all", status: "ready" }).data.orders.find((item) => item.awb === awb).reviewRequired, undefined);
+
+  const duplicate = service.createOrderFromShippingLabel({
+    parsed: { awb, platform: "shopee", orderNumber: "260707376YX4E3", customerName: "ลูกค้าทดสอบ", productName: "ตู้เหล็กมาตรฐาน", quantity: 1 }
+  });
+  assert.equal(duplicate.ok, false);
+  assert.equal(duplicate.code, "ORDER_DUPLICATE_LABEL");
 });
 
 test("draft label import can be edited later and promoted into ORDER_DB when item details are completed", () => {
