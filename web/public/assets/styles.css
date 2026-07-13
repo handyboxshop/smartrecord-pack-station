@@ -111,6 +111,39 @@ input.invalid, textarea.invalid, select.invalid {
 
 #app.authLocked { display: none; }
 
+.authLoadingScreen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--brand-bg);
+}
+.authLoadingCard {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 22px;
+  color: var(--muted);
+  font-weight: 700;
+  background: rgba(255, 252, 247, 0.92);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(87, 58, 31, 0.1);
+}
+.authLoadingCard p { margin: 0; }
+.authLoadingSpinner {
+  width: 18px;
+  height: 18px;
+  border: 3px solid rgba(166, 106, 50, 0.22);
+  border-top-color: var(--brand-blue-bright);
+  border-radius: 50%;
+  animation: authLoadingSpin 0.8s linear infinite;
+}
+@keyframes authLoadingSpin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .authLoadingSpinner { animation: none; }
+}
+
 .loginScreen {
   min-height: 100vh;
   display: grid;

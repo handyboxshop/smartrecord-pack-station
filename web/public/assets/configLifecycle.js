@@ -29,8 +29,10 @@ export async function runConfigBoot({
   applyPublicConfig,
   hasPersistedSession,
   restoreSession,
-  showLoggedOut
+  showLoggedOut,
+  showInitializing = () => {}
 }) {
+  showInitializing();
   const result = await loadPublicConfig();
   if (!result?.ok || !result.data) return result;
 

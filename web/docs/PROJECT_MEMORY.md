@@ -1,5 +1,11 @@
 # SmartRecord Pack Station Project Memory
 
+## 2026-07-14 — Authentication Refresh Bootstrap and Active View Restoration
+
+- what: Refreshing an authenticated page now shows a neutral authentication-loading screen until public config, session validation, and authenticated config loading complete. Each startup request is bounded to 8 seconds and aborted on timeout, then transitions to the existing login/error fallback. The login screen is hidden by default and is shown only when no persisted token exists or restoration fails. The active permitted tab is stored as the identifier `smartrecord.activeView`, restored after permissions load, and cleared on logout.
+- root cause: Static HTML rendered the login screen before asynchronous `/api/config/public`, `/api/auth/me`, and `/api/config` restoration completed. After restoration, the client always selected the first permitted tab and had no active-view persistence.
+- correct: Keep both login and authenticated app hidden during initialization. Bound and abort each startup request so a stalled fetch reaches the existing error/login fallback. Reveal the app only after the server validates the existing token and authenticated configuration is available. Restore a saved view only when it remains in the authenticated user's allowed view set; otherwise use `firstAllowedView()`. Do not persist session data, permissions, tokens, or server-derived authorization state in view storage; do not alter server session TTL or expiration behavior.
+
 ## 2026-07-14 — Label Platform Detection, Duplicate-safe Print Registration, and Authenticated Browser Print
 
 - what: Shipping-label OCR now detects TikTok from noisy strong `TikTok Shop` text or a threshold of independent J&T/TikTok layout signals; importing an existing `AWB + orderNumber` returns `orderState: already_exists` while the printable page is registered separately with `labelState: created|already_exists|failed`.
