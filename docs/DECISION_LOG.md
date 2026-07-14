@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-07-14 — Provisional built-in SQLite runtime foundation
+
+- Provisionally use `node:sqlite` to preserve the zero-dependency runtime and avoid native-addon differences between Apple Silicon development and Docker `linux/amd64`.
+- Pin Node and the Docker base image to `22.23.1` because the compatibility surface is version-sensitive and may emit `ExperimentalWarning` on this release.
+- Before Pack Record cutover, verify the exact Docker `linux/amd64` image with production-style volume tests. If the built-in API fails that validation, use `better-sqlite3` as the fallback.
+
 ## 2026-07-12 — PR-H1 M-1/M-2: Strict Pack Guide Projection and Centralized Cleanup
 
 ## Decision
