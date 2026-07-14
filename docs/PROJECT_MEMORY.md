@@ -1,5 +1,12 @@
 # Project Memory
 
+## 2026-07-14 — SQLite Database Foundation
+
+- what: Added an opt-in `node:sqlite` database layer, ordered/checksummed migrations, the `schema_migrations` and JSON-validated `storage_metadata` foundation tables, safe metadata helpers, and an explicit-path local migration CLI. The application startup and JSON/Pack Record persistence remain unchanged.
+- root cause: The project had runtime compatibility coverage but no controlled connection policy, schema version authority, migration integrity record, or safe storage metadata contract. During verification, `PRAGMA busy_timeout` returned its scalar under `timeout`, showing that PRAGMA result column names are not uniformly identical to pragma names.
+- correct: Require caller-supplied paths; create parent directories only by explicit request; enforce foreign keys, WAL for files, `synchronous=FULL`, and `busy_timeout=5000`; run immutable SHA-256 migrations transactionally and mirror the latest applied version to `user_version`; read single-value PRAGMA results by scalar position rather than assuming a column name. Production creation remains a controlled future step at `/data/smartrecord/database/smartrecord.sqlite`, and multiple containers must never share one SQLite file.
+- next: Validate the exact Docker `linux/amd64` runtime and mounted-volume behavior before any application cutover; JSON import and Pack Record persistence remain out of scope.
+
 ## 2026-07-14 — Shipping-label Duplicate-safe Print Import
 
 - what: Separated shipping-label order state (`created`, `already_exists`, `conflict`) from printable-label state (`created`, `already_exists`, `failed`); strengthened TikTok detection and fixed authenticated preview/print path handling.

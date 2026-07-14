@@ -9,9 +9,10 @@
   "scripts": {
     "dev": "node server/index.mjs",
     "dev:reset": "node scripts/dev-reset.mjs",
+    "db:migrate": "node scripts/db-migrate.mjs",
     "server": "node server/index.mjs",
     "server:check": "node scripts/server-check.mjs",
-    "check": "node --check server/index.mjs && node --check src/storage/sqliteRuntimeCompatibility.mjs && node --check public/assets/app.js && node --check public/assets/configLifecycle.js && node --check public/assets/authRuntimeCleanup.js && node --check public/assets/cameraLifecycle.js",
+    "check": "node --check server/index.mjs && node --check scripts/db-migrate.mjs && node --check src/storage/sqliteRuntimeCompatibility.mjs && node --check src/storage/sqliteDatabase.mjs && node --check src/storage/migrate.mjs && node --check src/storage/sqliteMetadata.mjs && node --check public/assets/app.js && node --check public/assets/configLifecycle.js && node --check public/assets/authRuntimeCleanup.js && node --check public/assets/cameraLifecycle.js",
     "start": "node server/index.mjs",
     "test": "node --test tests/*.test.mjs"
   }

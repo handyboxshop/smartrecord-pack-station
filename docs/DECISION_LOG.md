@@ -1,5 +1,11 @@
 # Decision Log
 
+## 2026-07-14 — SQLite database foundation policy
+
+- Database paths are caller-supplied: imports never open a database, parent directories are created only by explicit request, and file databases require foreign keys, WAL, `synchronous=FULL`, and a 5-second busy timeout.
+- The intended future production container path is `/data/smartrecord/database/smartrecord.sqlite`; this task does not connect application startup or runtime JSON/Pack Records to SQLite, and production creation will happen only through a controlled migration step.
+- A SQLite file must belong to one container process; multiple containers must not share the same SQLite file.
+
 ## 2026-07-14 — Provisional built-in SQLite runtime foundation
 
 - Provisionally use `node:sqlite` to preserve the zero-dependency runtime and avoid native-addon differences between Apple Silicon development and Docker `linux/amd64`.
