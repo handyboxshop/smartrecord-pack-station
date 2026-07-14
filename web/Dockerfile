@@ -17,6 +17,7 @@ RUN apt-get update \
 WORKDIR /app
 
 COPY package.json ./
+COPY scripts ./scripts
 COPY server ./server
 COPY src ./src
 COPY public ./public
