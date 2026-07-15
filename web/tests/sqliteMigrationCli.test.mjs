@@ -35,8 +35,11 @@ test("migration CLI applies migrations to an explicit temporary argument path", 
   await access(databasePath);
   assert.match(output.join("\n"), new RegExp(`database_path=${escapeRegExp(databasePath)}`));
   assert.match(output.join("\n"), /sqlite_version=\d+\.\d+\.\d+/);
-  assert.match(output.join("\n"), /migrations_applied=1:001_storage_foundation\.sql/);
-  assert.match(output.join("\n"), /schema_version=1/);
+  assert.match(
+    output.join("\n"),
+    /migrations_applied=1:001_storage_foundation\.sql,2:002_pack_records\.sql/
+  );
+  assert.match(output.join("\n"), /schema_version=2/);
   assert.match(output.join("\n"), /quick_check=ok/);
   assert.match(output.join("\n"), /foreign_key_check=ok/);
 });
@@ -55,7 +58,7 @@ test("migration CLI accepts an explicit temporary environment path", async (t) =
 
   assert.equal(exitCode, 0);
   await access(databasePath);
-  assert.match(output.join("\n"), /schema_version=1/);
+  assert.match(output.join("\n"), /schema_version=2/);
 });
 
 async function temporaryDirectory(t) {
