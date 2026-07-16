@@ -28,10 +28,13 @@ export class SqliteMigrationError extends SqliteStorageError {
 
 export async function runSqliteMigrations(database, {
   migrationsDirectory = DEFAULT_MIGRATIONS_DIRECTORY,
-  now = () => new Date()
+  now = () => new Date(),
+  maximumVersion = null
 } = {}) {
-  const migrations = await loadMigrations(migrationsDirectory);
+  const availableMigrations = await loadMigrations(migrationsDirectory);
+  const migrations = selectMigrationsThroughVersion(availableMigrations, maximumVersion);
   const latestSupportedVersion = migrations.at(-1)?.version ?? 0;
+  const latestAvailableVersion = availableMigrations.at(-1)?.version ?? 0;
   const currentUserVersion = readUserVersion(database);
 
   return runInSqliteTransaction(database, () => {
@@ -42,11 +45,14 @@ export async function runSqliteMigrations(database, {
       ORDER BY version
     `).all();
 
-    validateAppliedMigrations(appliedRows, migrations, latestSupportedVersion);
-    if (currentUserVersion > latestSupportedVersion) {
+    validateAppliedMigrations(appliedRows, availableMigrations, latestAvailableVersion);
+    const appliedVersionAboveTarget = appliedRows.find(
+      (row) => Number(row.version) > latestSupportedVersion
+    );
+    if (currentUserVersion > latestSupportedVersion || appliedVersionAboveTarget) {
       throw migrationError(
         "SQLITE_SCHEMA_VERSION_UNSUPPORTED",
-        `Database schema version ${currentUserVersion} is newer than supported version ${latestSupportedVersion}.`
+        `Database schema version ${Math.max(currentUserVersion, Number(appliedVersionAboveTarget?.version || 0))} is newer than supported version ${latestSupportedVersion}.`
       );
     }
 
@@ -92,6 +98,23 @@ export async function runSqliteMigrations(database, {
       latestSupportedVersion
     };
   });
+}
+
+function selectMigrationsThroughVersion(migrations, maximumVersion) {
+  if (maximumVersion == null) return migrations;
+  if (!Number.isSafeInteger(maximumVersion) || maximumVersion < 1) {
+    throw migrationError(
+      "SQLITE_MIGRATION_TARGET_INVALID",
+      "The maximum SQLite migration version must be a positive safe integer."
+    );
+  }
+  if (!migrations.some((migration) => migration.version === maximumVersion)) {
+    throw migrationError(
+      "SQLITE_MIGRATION_TARGET_UNAVAILABLE",
+      `SQLite migration version ${maximumVersion} is not available.`
+    );
+  }
+  return migrations.filter((migration) => migration.version <= maximumVersion);
 }
 
 export function readSqliteSchemaVersion(database) {

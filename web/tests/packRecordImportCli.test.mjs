@@ -86,7 +86,11 @@ test("imports, verifies, closes, and promotes a valid snapshot without changing 
 
   const database = await openSqliteDatabase(destinationPath);
   try {
+    assert.equal(database.prepare("PRAGMA user_version").get().user_version, 2);
     assert.equal(database.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get().count, 2);
+    assert.equal(database.prepare(`
+      SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'orders'
+    `).get(), undefined);
     assert.equal(database.prepare("SELECT COUNT(*) AS count FROM pack_records").get().count, 2);
     assert.equal(database.prepare("SELECT COUNT(*) AS count FROM pack_record_videos").get().count, 1);
     const batchTimestamp = database.prepare(
@@ -295,8 +299,8 @@ test("an existing-row import conflict closes the database and never promotes it"
   let closeCalls = 0;
 
   const result = await invokeCli([sourcePath, destinationPath], {
-    async runSqliteMigrations(database) {
-      const migrationResult = await runSqliteMigrations(database);
+    async runSqliteMigrations(database, options) {
+      const migrationResult = await runSqliteMigrations(database, options);
       database.prepare(`
         INSERT INTO pack_records (
           id, record_sequence, awb, awb_normalized, status, created_at, updated_at

@@ -42,7 +42,10 @@ function expectImportError(callback, code) {
 async function migratedDatabase(t) {
   const database = await openInMemoryDatabase();
   t.after(() => closeSqliteDatabase(database));
-  await runSqliteMigrations(database, { now: () => new Date(FIXED_TIMESTAMP) });
+  await runSqliteMigrations(database, {
+    now: () => new Date(FIXED_TIMESTAMP),
+    maximumVersion: 2
+  });
   return database;
 }
 
