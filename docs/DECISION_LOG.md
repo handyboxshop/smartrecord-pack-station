@@ -1,5 +1,13 @@
 # Decision Log
 
+## 2026-07-16 — Phase 3D import verification contract
+
+- The Phase 3D verifier is limited to dedicated one-shot validation databases: `pack_records` and `pack_record_videos` must exactly match the verified input snapshot. Append-batch or mixed-history verification requires a separate future contract.
+- Verification uses a local synchronous deferred `BEGIN` read snapshot and must not use `BEGIN IMMEDIATE`, `BEGIN EXCLUSIVE`, nested `SAVEPOINT`, `query_only`, state-changing PRAGMAs, or write statements.
+- Invalid input and invalid import results fail before database access. Stored source payloads are compared with recursive JSON semantic equality rather than raw JSON string equality.
+- Issues and reports must not expose IDs, AWBs, payloads, customer values, SQL, filesystem paths, or raw SQLite diagnostics.
+- JSON remains the runtime source until a separately reviewed and approved SQLite runtime cutover. Backup, restore, runtime database configuration, migration execution, and production deployment remain outside Phase 3D.
+
 ## 2026-07-14 — SQLite database foundation policy
 
 - Database paths are caller-supplied: imports never open a database, parent directories are created only by explicit request, and file databases require foreign keys, WAL, `synchronous=FULL`, and a 5-second busy timeout.
