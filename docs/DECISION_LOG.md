@@ -1,5 +1,13 @@
 # Decision Log
 
+## 2026-07-16 — Phase 4A CI quality-gate policy
+
+- Changes are validated for pull requests targeting `main` and pushes to `main`; `workflow_dispatch` permits an explicitly triggered manual workflow run.
+- CI uses `ubuntu-24.04` and exact Node.js `v22.23.1`.
+- Quality gates cover changed whitespace, JavaScript syntax, project checks, the full automated test suite, and detection of committed SQLite artifacts.
+- Workflow permissions remain read-only through `contents: read`, checkout credentials are not persisted, and no workflow artifacts are uploaded.
+- CI is source validation only. It does not deploy, access runtime/customer data, change the JSON runtime source, or authorize a SQLite runtime cutover.
+
 ## 2026-07-16 — Phase 3D import verification contract
 
 - The Phase 3D verifier is limited to dedicated one-shot validation databases: `pack_records` and `pack_record_videos` must exactly match the verified input snapshot. Append-batch or mixed-history verification requires a separate future contract.

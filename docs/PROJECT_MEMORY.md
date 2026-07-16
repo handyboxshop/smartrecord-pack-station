@@ -1,5 +1,16 @@
 # Project Memory
 
+## 2026-07-16 — Phase 4A — GitHub Actions CI
+
+- what: PR #23 added only `.github/workflows/ci.yml`, with feature commit `7dfbce4f1d0c370810d79a397cf16eec5581153e` and merge commit `9b90fd01014e298ba8815f1c5e0491da0e0e7efb`.
+- triggers: The workflow runs for pull requests targeting `main`, pushes to `main`, and explicitly triggered manual runs through `workflow_dispatch`.
+- runtime: The `Test and check` job runs on `ubuntu-24.04`; Node.js is pinned and explicitly verified as `v22.23.1`.
+- quality gates: CI performs event-aware changed-whitespace validation with `git diff --check`; JavaScript syntax checks under `web/server`, `web/scripts`, `web/src`, `web/public`, and `web/tests`; `npm run check`; `npm test`; and a repository-wide scan preventing committed SQLite artifacts.
+- security: Workflow permission is `contents: read`, checkout uses `persist-credentials: false`, and no workflow artifacts are uploaded.
+- verification: The post-merge push run at https://github.com/handyboxshop/smartrecord-pack-station/actions/runs/29474028451 passed on `main` at commit `9b90fd01014e298ba8815f1c5e0491da0e0e7efb`: 364 tests passed, 0 failed, and the syntax, project, changed-whitespace, and SQLite-artifact checks passed.
+- safety: JSON remains the active runtime source. Phase 4A introduced no deployment, runtime/customer-data access, production database, SQLite runtime cutover, or production runtime change.
+- branches: Preserve `ci/phase-4a-github-actions` locally and remotely.
+
 ## 2026-07-16 — Phase 3D — Import Verification and Reporting
 
 - what: Completed Phase 3D through PR #21 with merge commit `0bb8cf1ba7eac7a75e812f1a95bde45b414cb62a`, feature commit `0790fc087057dae83eec66061414e9828a8ad71b`, and baseline parent `0621b01e7bab9460de516e77c0f43eb8e356fefa`.
