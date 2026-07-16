@@ -40,6 +40,7 @@ const PROMOTION_STATE = Object.freeze({
 const STAGING_CLEANUP_WARNING = "STAGING_ALIAS_CLEANUP_FAILED";
 const COMMITTED_DESTINATION_IDENTITY_CHECK_WARNING =
   "COMMITTED_DESTINATION_IDENTITY_CHECK_FAILED";
+const PACK_RECORD_SCHEMA_VERSION = 2;
 
 const DEFAULT_DEPENDENCIES = {
   access,
@@ -148,7 +149,7 @@ export async function importPackRecordSnapshot({
     );
     operation.state = PROMOTION_STATE.DATABASE_OPEN;
     await runPhase(
-      () => deps.runSqliteMigrations(database),
+      () => deps.runSqliteMigrations(database, { maximumVersion: PACK_RECORD_SCHEMA_VERSION }),
       "SQLITE_MIGRATION_FAILED",
       "SQLite migrations failed."
     );
