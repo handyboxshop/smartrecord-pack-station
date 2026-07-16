@@ -1,5 +1,14 @@
 # Project Memory
 
+## 2026-07-16 — Phase 3D — Import Verification and Reporting
+
+- what: Completed Phase 3D through PR #21 with merge commit `0bb8cf1ba7eac7a75e812f1a95bde45b414cb62a`, feature commit `0790fc087057dae83eec66061414e9828a8ad71b`, and baseline parent `0621b01e7bab9460de516e77c0f43eb8e356fefa`.
+- added: `web/src/storage/packRecordImportVerifier.mjs` and `web/tests/packRecordImportVerifier.test.mjs`.
+- verification behavior: Uses a deferred `BEGIN` read snapshot to verify exact dedicated one-shot destination snapshot parity; compares stored source payloads with recursive JSON semantic equality; returns deterministic safe issue objects and typed, sanitized operational errors; exposes a pure synchronous verification reporter; and sanitizes `quick_check` and `foreign_key_check` to aggregate results.
+- verification: Final full suite passed 364/364.
+- safety: JSON remains the active runtime source. No SQLite runtime read/write cutover, server integration, production deployment, production or runtime SQLite database creation, or runtime/customer data access occurred.
+- branches: Preserved the local `feat/phase-3d-pack-record-import-verifier` branch. The remote feature branch was retained at documentation closure, as reflected by the existing `origin/feat/phase-3d-pack-record-import-verifier` remote-tracking ref; no network check was performed.
+
 ## 2026-07-14 — SQLite Database Foundation
 
 - what: Added an opt-in `node:sqlite` database layer, ordered/checksummed migrations, the `schema_migrations` and JSON-validated `storage_metadata` foundation tables, safe metadata helpers, and an explicit-path local migration CLI. The application startup and JSON/Pack Record persistence remain unchanged.
