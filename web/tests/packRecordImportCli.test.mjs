@@ -91,6 +91,9 @@ test("imports, verifies, closes, and promotes a valid snapshot without changing 
     assert.equal(database.prepare(`
       SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'orders'
     `).get(), undefined);
+    assert.equal(database.prepare(`
+      SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'users'
+    `).get(), undefined);
     assert.equal(database.prepare("SELECT COUNT(*) AS count FROM pack_records").get().count, 2);
     assert.equal(database.prepare("SELECT COUNT(*) AS count FROM pack_record_videos").get().count, 1);
     const batchTimestamp = database.prepare(

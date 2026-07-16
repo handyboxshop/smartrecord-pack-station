@@ -47,12 +47,17 @@ test("default migrations apply storage schemas in numeric order", async (t) => {
       version: 3,
       name: "003_orders_labels.sql",
       appliedAt: "2026-07-14T10:00:00.000Z"
+    },
+    {
+      version: 4,
+      name: "004_users.sql",
+      appliedAt: "2026-07-14T10:00:00.000Z"
     }
   ]);
   assert.equal(result.applied.every(({ checksumSha256 }) => /^[a-f0-9]{64}$/.test(checksumSha256)), true);
-  assert.equal(result.currentVersion, 3);
-  assert.equal(readSqliteSchemaVersion(database), 3);
-  assert.equal(database.prepare("PRAGMA user_version").get().user_version, 3);
+  assert.equal(result.currentVersion, 4);
+  assert.equal(readSqliteSchemaVersion(database), 4);
+  assert.equal(database.prepare("PRAGMA user_version").get().user_version, 4);
 
   const tables = database.prepare(`
     SELECT name FROM sqlite_schema
@@ -66,14 +71,20 @@ test("default migrations apply storage schemas in numeric order", async (t) => {
     "pack_record_videos",
     "pack_records",
     "schema_migrations",
-    "storage_metadata"
+    "storage_metadata",
+    "user_activity_logs",
+    "user_audit_log_fields",
+    "user_audit_logs",
+    "user_module_permissions",
+    "users"
   ]);
 
   const migrationRows = database.prepare("SELECT * FROM schema_migrations ORDER BY version").all();
   assert.deepEqual(migrationRows.map(({ version, name, applied_at }) => ({ version, name, applied_at })), [
     { version: 1, name: "001_storage_foundation.sql", applied_at: "2026-07-14T10:00:00.000Z" },
     { version: 2, name: "002_pack_records.sql", applied_at: "2026-07-14T10:00:00.000Z" },
-    { version: 3, name: "003_orders_labels.sql", applied_at: "2026-07-14T10:00:00.000Z" }
+    { version: 3, name: "003_orders_labels.sql", applied_at: "2026-07-14T10:00:00.000Z" },
+    { version: 4, name: "004_users.sql", applied_at: "2026-07-14T10:00:00.000Z" }
   ]);
   assert.deepEqual(
     migrationRows.map(({ checksum_sha256 }) => checksum_sha256),
@@ -88,8 +99,8 @@ test("migration runner is safe to run repeatedly", async (t) => {
   const repeated = await runSqliteMigrations(database);
 
   assert.deepEqual(repeated.applied, []);
-  assert.equal(repeated.currentVersion, 3);
-  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get().count, 3);
+  assert.equal(repeated.currentVersion, 4);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get().count, 4);
 });
 
 test("migration runner can preserve a workflow pinned to schema version 2", async (t) => {
@@ -105,20 +116,23 @@ test("migration runner can preserve a workflow pinned to schema version 2", asyn
   assert.equal(database.prepare(`
     SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'orders'
   `).get(), undefined);
+  assert.equal(database.prepare(`
+    SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'users'
+  `).get(), undefined);
   assert.deepEqual(repeated, { applied: [], currentVersion: 2, latestSupportedVersion: 2 });
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get().count, 2);
 });
 
 test("maximumVersion rejects invalid or unavailable targets without mutation", async (t) => {
   const database = await managedInMemoryDatabase(t);
-  for (const maximumVersion of [0, -1, 1.5, Number.NaN, "2", 4]) {
+  for (const maximumVersion of [0, -1, 1.5, Number.NaN, "2", 5]) {
     await assert.rejects(
       runSqliteMigrations(database, { maximumVersion }),
       (error) => {
         assert.equal(error instanceof SqliteMigrationError, true);
         assert.equal(
           error.code,
-          maximumVersion === 4
+          maximumVersion === 5
             ? "SQLITE_MIGRATION_TARGET_UNAVAILABLE"
             : "SQLITE_MIGRATION_TARGET_INVALID"
         );
@@ -134,11 +148,26 @@ test("maximumVersion rejects invalid or unavailable targets without mutation", a
 
 test("maximumVersion accepts the exact latest target", async (t) => {
   const database = await managedInMemoryDatabase(t);
+  const result = await runSqliteMigrations(database, { maximumVersion: 4 });
+
+  assert.deepEqual(result.applied.map((migration) => migration.version), [1, 2, 3, 4]);
+  assert.equal(result.currentVersion, 4);
+  assert.equal(result.latestSupportedVersion, 4);
+});
+
+test("maximumVersion 3 preserves the Orders and Labels schema without Users tables", async (t) => {
+  const database = await managedInMemoryDatabase(t);
   const result = await runSqliteMigrations(database, { maximumVersion: 3 });
 
   assert.deepEqual(result.applied.map((migration) => migration.version), [1, 2, 3]);
   assert.equal(result.currentVersion, 3);
   assert.equal(result.latestSupportedVersion, 3);
+  assert.equal(database.prepare(`
+    SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'orders'
+  `).get().name, "orders");
+  assert.equal(database.prepare(`
+    SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'users'
+  `).get(), undefined);
 });
 
 test("maximumVersion rejects a newer existing database explicitly without mutation", async (t) => {
@@ -158,7 +187,7 @@ test("maximumVersion rejects a newer existing database explicitly without mutati
       && error.code === "SQLITE_SCHEMA_VERSION_UNSUPPORTED"
   );
 
-  assert.equal(database.prepare("PRAGMA user_version").get().user_version, 3);
+  assert.equal(database.prepare("PRAGMA user_version").get().user_version, 4);
   assert.deepEqual(database.prepare(`
     SELECT version, name, checksum_sha256, applied_at
     FROM schema_migrations ORDER BY version
@@ -561,7 +590,7 @@ test("migration runner rejects a missing already-applied migration file", async 
 
 test("migration runner refuses unsupported future schema versions", async (t) => {
   const database = await managedInMemoryDatabase(t);
-  database.exec("PRAGMA user_version = 4");
+  database.exec("PRAGMA user_version = 5");
 
   await assert.rejects(
     runSqliteMigrations(database),
@@ -582,8 +611,8 @@ test("migration runner mirrors the latest applied migration to PRAGMA user_versi
 
   await runSqliteMigrations(database);
 
-  assert.equal(readSqliteSchemaVersion(database), 3);
-  assert.equal(database.prepare("PRAGMA user_version").get().user_version, 3);
+  assert.equal(readSqliteSchemaVersion(database), 4);
+  assert.equal(database.prepare("PRAGMA user_version").get().user_version, 4);
 });
 
 test("metadata helpers create, read, update, list, and delete JSON values", async (t) => {

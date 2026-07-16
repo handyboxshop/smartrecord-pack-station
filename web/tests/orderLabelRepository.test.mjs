@@ -27,14 +27,15 @@ test("migration 003 applies after existing migrations and remains idempotent", a
   assert.deepEqual(migrations.map((row) => [row.version, row.name]), [
     [1, "001_storage_foundation.sql"],
     [2, "002_pack_records.sql"],
-    [3, "003_orders_labels.sql"]
+    [3, "003_orders_labels.sql"],
+    [4, "004_users.sql"]
   ]);
-  assert.match(migrations[2].checksum_sha256, /^[a-f0-9]{64}$/);
-  assert.equal(database.prepare("PRAGMA user_version").get().user_version, 3);
+  assert.equal(migrations.every((migration) => /^[a-f0-9]{64}$/.test(migration.checksum_sha256)), true);
+  assert.equal(database.prepare("PRAGMA user_version").get().user_version, 4);
 
   const repeated = await runSqliteMigrations(database, { now: fixedNow });
-  assert.deepEqual(repeated, { applied: [], currentVersion: 3, latestSupportedVersion: 3 });
-  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get().count, 3);
+  assert.deepEqual(repeated, { applied: [], currentVersion: 4, latestSupportedVersion: 4 });
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get().count, 4);
 
   const strictTables = new Map(database.prepare("PRAGMA table_list").all().map((row) => [row.name, row.strict]));
   assert.equal(strictTables.get("orders"), 1);
