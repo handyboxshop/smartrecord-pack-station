@@ -19,6 +19,7 @@ import { parseHttpRange } from "../src/domain/httpRange.mjs";
 import { detectPlatform, parseShippingLabelTexts } from "../src/domain/shippingLabelParser.mjs";
 import { buildVideoFileLocation } from "../src/domain/videoFileNaming.mjs";
 import { validateImageFile } from "../src/domain/imageValidation.mjs";
+import { startServerLifecycle } from "./serverLifecycle.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
@@ -29,6 +30,7 @@ const host = process.env.HOST || (mode === "production" ? "0.0.0.0" : "127.0.0.1
 const jsonBodyLimitBytes = Number(process.env.SMARTRECORD_JSON_BODY_LIMIT_BYTES || 2 * 1024 * 1024);
 const shutdownTimeoutMs = Number(process.env.SMARTRECORD_SHUTDOWN_TIMEOUT_MS || 10000);
 const port = Number(process.env.PORT || 4173);
+const databasePath = process.env.SMARTRECORD_SQLITE_DATABASE_PATH;
 
 const configPath = resolveRuntimePath(process.env.SMARTRECORD_CONFIG_PATH, path.join(rootDir, "config", "app-config.example.json"));
 const usersPath = resolveRuntimePath(process.env.SMARTRECORD_USERS_PATH, path.join(rootDir, "data", "users.json"));
@@ -101,58 +103,59 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.on("error", (error) => {
-  if (error.code === "EADDRINUSE") {
-    console.error(`[startup] Port ${port} on host ${host} is already in use. Stop the old process or run "npm run dev:reset" before starting again.`);
-  } else {
-    console.error(`[startup] ${serviceName} failed: ${error.code || "UNKNOWN"} ${error.message}`);
-  }
-  if (!server.listening) process.exit(1);
-});
+let lifecycleController;
+let signalShutdownPromise;
 
-server.listen(port, host, () => {
-  const healthUrl = `http://${host}:${port}/api/health`;
+try {
+  lifecycleController = await startServerLifecycle({
+    server,
+    databasePath,
+    host,
+    port,
+    flushRuntimeState,
+    shutdownTimeoutMs
+  });
+  const listeningPort = lifecycleController.address.port;
+  const healthUrl = `http://${host}:${listeningPort}/api/health`;
   console.log(`[startup] service=${serviceName}`);
   console.log(`[startup] mode=${mode}`);
   console.log(`[startup] host=${host}`);
-  console.log(`[startup] port=${port}`);
+  console.log(`[startup] port=${listeningPort}`);
   console.log(`[startup] routes=GET /api/health, GET /api/config/public, GET /api/config, POST /api/auth/login`);
   console.log(`[startup] health=${healthUrl} ready`);
-});
-
-let shuttingDown = false;
-
-function gracefulShutdown(signal) {
-  if (shuttingDown) return;
-  shuttingDown = true;
-  console.log(`[shutdown] ${signal} received, closing ${serviceName}`);
-
-  const timer = setTimeout(() => {
-    console.error(`[shutdown] forced exit after ${shutdownTimeoutMs}ms`);
-    process.exit(1);
-  }, shutdownTimeoutMs);
-  timer.unref?.();
-
-  server.close(async (error) => {
-    if (error) {
-      console.error(`[shutdown] close failed: ${error.message}`);
-      process.exit(1);
-    }
-
-    try {
-      await flushRuntimeState();
-      clearTimeout(timer);
-      console.log("[shutdown] closed cleanly");
-      process.exit(0);
-    } catch (flushError) {
-      console.error(`[shutdown] final flush failed: ${flushError.message}`);
-      process.exit(1);
-    }
-  });
+  process.on("SIGTERM", handleSigterm);
+  process.on("SIGINT", handleSigint);
+} catch (error) {
+  logLifecycleFailure("startup", error, "SERVER_LIFECYCLE_OPTIONS_INVALID");
+  process.exitCode = 1;
 }
 
-process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
-process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+function handleSigterm() {
+  beginSignalShutdown("SIGTERM");
+}
+
+function handleSigint() {
+  beginSignalShutdown("SIGINT");
+}
+
+function beginSignalShutdown(signal) {
+  if (signalShutdownPromise) return signalShutdownPromise;
+  console.log(`[shutdown] ${signal} received, closing ${serviceName}`);
+  signalShutdownPromise = lifecycleController.close(signal)
+    .then(() => {
+      console.log("[shutdown] closed cleanly");
+      process.exitCode = 0;
+    })
+    .catch((error) => {
+      logLifecycleFailure("shutdown", error, "SERVER_SHUTDOWN_FAILED");
+      process.exitCode = 1;
+    })
+    .finally(() => {
+      process.removeListener("SIGTERM", handleSigterm);
+      process.removeListener("SIGINT", handleSigint);
+    });
+  return signalShutdownPromise;
+}
 
 async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/health") {
@@ -1571,6 +1574,23 @@ function logStartupFailure(step, error) {
   console.error(`[startup] ${serviceName} failed during ${step}`);
   console.error(`[startup] mode=${mode} host=${host} port=${port}`);
   console.error(`[startup] ${error?.stack || error?.message || error}`);
+}
+
+function logLifecycleFailure(phase, error, fallbackCode) {
+  const messages = {
+    SERVER_LIFECYCLE_OPTIONS_INVALID: "Server lifecycle options are invalid.",
+    SERVER_SQLITE_PATH_INVALID: "SQLite database path is invalid.",
+    SERVER_LIFECYCLE_ALREADY_STARTED: "HTTP server lifecycle has already started.",
+    SERVER_SQLITE_OPEN_FAILED: "SQLite database could not be opened.",
+    SERVER_SQLITE_MIGRATION_FAILED: "SQLite database migration failed.",
+    SERVER_SQLITE_INTEGRITY_FAILED: "SQLite database integrity validation failed.",
+    SERVER_LISTEN_FAILED: "HTTP server failed to start.",
+    SERVER_SHUTDOWN_TIMEOUT: "HTTP server shutdown timed out.",
+    SERVER_SQLITE_CLOSE_FAILED: "SQLite database could not be closed.",
+    SERVER_SHUTDOWN_FAILED: "Server shutdown failed."
+  };
+  const code = Object.hasOwn(messages, error?.code) ? error.code : fallbackCode;
+  console.error(`[${phase}] ${code} ${messages[code]}`);
 }
 
 function sendBuffer(res, status, payload, type) {
