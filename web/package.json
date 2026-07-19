@@ -10,6 +10,7 @@
     "dev": "node server/index.mjs",
     "dev:reset": "node scripts/dev-reset.mjs",
     "db:import-pack-records": "node scripts/import-pack-records.mjs",
+    "db:check-users-readiness": "node scripts/check-user-import-readiness.mjs",
     "db:bootstrap-initial-admin": "node scripts/bootstrap-initial-admin.mjs",
     "db:migrate": "node scripts/db-migrate.mjs",
     "server": "node server/index.mjs",
