@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -33,7 +33,7 @@ function user(overrides = {}) {
   };
 }
 
-async function fixture(t, { users = [user()], config = { auth: { roles: roles(), modules: modules() } }, map = null } = {}) {
+async function fixture(t, { users = [user()], config = { auth: { roles: roles(), modules: modules() } }, map = {} } = {}) {
   const directory = await mkdtemp(path.join(tmpdir(), "users-readiness-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const usersPath = path.join(directory, "users.json");
@@ -41,7 +41,7 @@ async function fixture(t, { users = [user()], config = { auth: { roles: roles(),
   const mapPath = path.join(directory, "map.json");
   await writeFile(usersPath, JSON.stringify(users));
   await writeFile(configPath, JSON.stringify(config));
-  if (map !== null) await writeFile(mapPath, typeof map === "string" ? map : JSON.stringify(map));
+  await writeFile(mapPath, typeof map === "string" ? map : JSON.stringify(map));
   return { directory, usersPath, configPath, mapPath };
 }
 
@@ -49,12 +49,20 @@ async function run(argv, dependencies = {}) {
   const stdout = [];
   const stderr = [];
   const code = await runUserImportReadinessCli({
-    argv,
+    argv: withExplicitUsernameMap(argv),
     output: (line) => stdout.push(line),
     errorOutput: (line) => stderr.push(line),
     dependencies
   });
   return { code, stdout, stderr };
+}
+
+function withExplicitUsernameMap(argv) {
+  if (!Array.isArray(argv) || argv.includes("--username-map") || !argv.includes("--users") || !argv.includes("--config")) return argv;
+  const configIndex = argv.indexOf("--config");
+  const configPath = argv[configIndex + 1];
+  if (typeof configPath !== "string" || !path.isAbsolute(configPath)) return argv;
+  return [...argv, "--username-map", path.join(path.dirname(configPath), "map.json")];
 }
 
 function parseOnly(lines) {
@@ -285,6 +293,35 @@ test("source, config, and map bytes and metadata remain unchanged", async (t) =>
     assert.equal(after[index].metadata.mtimeMs, before[index].metadata.mtimeMs);
     assert.equal(after[index].metadata.ino, before[index].metadata.ino);
   }
+});
+
+test("retained readiness buffers are wiped after successful output", async (t) => {
+  const files = await fixture(t);
+  const retained = [];
+  const result = await run(["--users", files.usersPath, "--config", files.configPath], {
+    lstat,
+    async readFile(filePath) { const bytes = await readFile(filePath); retained.push(bytes); return bytes; }
+  });
+  assert.equal(result.code, 0);
+  assert.equal(retained.length, 3);
+  assert.ok(retained.every((bytes) => bytes.every((value) => value === 0)));
+});
+
+test("retained readiness buffers are wiped after blocked analysis without disclosure", async (t) => {
+  const files = await fixture(t);
+  const retained = [];
+  const result = await run(["--users", files.usersPath, "--config", files.configPath], {
+    lstat,
+    async readFile(filePath) { const bytes = await readFile(filePath); retained.push(bytes); return bytes; },
+    analyzeUserImportReadiness() { return { ok: false, status: "blocked", issues: [] }; }
+  });
+  assert.equal(result.code, 1);
+  assert.equal(result.stdout.length, 0);
+  assert.equal(result.stderr.length, 1);
+  assert.equal(JSON.parse(result.stderr[0]).code, "USERS_READINESS_BLOCKED");
+  assert.equal(retained.length, 3);
+  assert.ok(retained.every((bytes) => bytes.every((value) => value === 0)));
+  assert.doesNotMatch(result.stderr[0], /USR-1|synthetic|users\.json|config\.json|map\.json|password|salt/i);
 });
 
 test("internal dependency failures are sanitized and exact", async (t) => {
