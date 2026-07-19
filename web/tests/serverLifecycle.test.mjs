@@ -100,7 +100,7 @@ test("rejects invalid host, port, flush, timeout, and dependency contracts", asy
   }
 });
 
-test("real startup migrates through version 4, validates integrity, and returns only the approved API", async (t) => {
+test("real startup migrates through version 5, validates integrity, and returns only the approved API", async (t) => {
   const temporary = await temporaryDatabasePath(t);
   const server = http.createServer((request, response) => {
     response.writeHead(200, { "Content-Type": "application/json" });
@@ -118,7 +118,7 @@ test("real startup migrates through version 4, validates integrity, and returns 
   assert.equal(typeof controller.address.family, "string");
   assert.equal(Number.isInteger(controller.address.port), true);
   assert.equal(controller.address.port > 0, true);
-  assert.equal(controller.schemaVersion, 4);
+  assert.equal(controller.schemaVersion, 5);
   assert.equal(Number.isSafeInteger(controller.migrationsApplied), true);
   assert.equal(controller.migrationsApplied >= 0, true);
   assert.equal("database" in controller, false);
@@ -126,16 +126,50 @@ test("real startup migrates through version 4, validates integrity, and returns 
 
   const inspector = await openSqliteDatabase(temporary.databasePath);
   try {
-    assert.equal(readSqliteSchemaVersion(inspector), 4);
+    assert.equal(readSqliteSchemaVersion(inspector), 5);
     assert.equal(runSqliteQuickCheck(inspector).ok, true);
     assert.equal(runSqliteForeignKeyCheck(inspector).ok, true);
-    assert.equal(inspector.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get().count, 4);
+    assert.equal(inspector.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get().count, 5);
   } finally {
     closeSqliteDatabase(inspector);
   }
 
   const response = await requestJson(controller.address.port, "/runtime-check");
   assert.deepEqual(response, { ok: true, source: "json-runtime" });
+});
+
+test("a version-4 database advances to 5 before HTTP readiness", async (t) => {
+  const temporary = await temporaryDatabasePath(t, "smartrecord-lifecycle-v4-");
+  const database = await openSqliteDatabase(temporary.databasePath);
+  await runSqliteMigrations(database, { maximumVersion: 4 });
+  closeSqliteDatabase(database);
+  const server = http.createServer((request, response) => response.end("ready"));
+
+  const controller = await startServerLifecycle(validOptions(server, temporary.databasePath));
+  t.after(() => controller.close());
+  assert.equal(controller.schemaVersion, 5);
+  assert.equal(controller.migrationsApplied, 1);
+  const inspector = await openSqliteDatabase(temporary.databasePath);
+  try {
+    assert.equal(readSqliteSchemaVersion(inspector), 5);
+    assert.equal(inspector.prepare(`
+      SELECT COUNT(*) AS count FROM main.schema_migrations WHERE version = 5
+    `).get().count, 1);
+  } finally {
+    closeSqliteDatabase(inspector);
+  }
+});
+
+test("a version-5 database starts without applying another migration", async (t) => {
+  const temporary = await temporaryDatabasePath(t, "smartrecord-lifecycle-v5-");
+  const database = await openSqliteDatabase(temporary.databasePath);
+  await runSqliteMigrations(database, { maximumVersion: 5 });
+  closeSqliteDatabase(database);
+  const controller = await startServerLifecycle(validOptions(http.createServer(), temporary.databasePath));
+  t.after(() => controller.close());
+
+  assert.equal(controller.schemaVersion, 5);
+  assert.equal(controller.migrationsApplied, 0);
 });
 
 test("startup executes SQLite readiness before listen and preserves caller inputs", async (t) => {
@@ -152,8 +186,8 @@ test("startup executes SQLite readiness before listen and preserves caller input
     runMigrations: async (received, options) => {
       events.push("migrate");
       assert.equal(received, database);
-      assert.deepEqual(options, { maximumVersion: 4 });
-      return { currentVersion: 4, applied: [{ version: 4 }] };
+      assert.deepEqual(options, { maximumVersion: 5 });
+      return { currentVersion: 5, applied: [{ version: 5 }] };
     },
     runQuickCheck: async () => { events.push("quick"); return { ok: true }; },
     runForeignKeyCheck: async () => { events.push("foreign-key"); return { ok: true }; },
@@ -205,7 +239,7 @@ test("open failure never starts the listener", async (t) => {
 test("real checksum and unsupported-schema failures rollback before listen", async (t) => {
   for (const corrupt of [
     (database) => database.prepare("UPDATE schema_migrations SET checksum_sha256 = ? WHERE version = 1").run("0".repeat(64)),
-    (database) => database.exec("PRAGMA user_version = 5")
+    (database) => database.exec("PRAGMA user_version = 6")
   ]) {
     const temporary = await temporaryDatabasePath(t, "smartrecord-lifecycle-migration-failure-");
     const database = await openSqliteDatabase(temporary.databasePath);
@@ -580,7 +614,7 @@ function validOptions(server, databasePath, dependencies) {
 function fakeDependencies(overrides = {}) {
   return {
     openDatabase: async () => ({}),
-    runMigrations: async () => ({ currentVersion: 4, applied: [] }),
+    runMigrations: async () => ({ currentVersion: 5, applied: [] }),
     runQuickCheck: async () => ({ ok: true }),
     runForeignKeyCheck: async () => ({ ok: true }),
     closeDatabase: async () => {},

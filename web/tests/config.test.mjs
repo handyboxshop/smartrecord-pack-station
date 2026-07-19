@@ -3,6 +3,12 @@ import test from "node:test";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  INITIAL_OWNER_ROLE_ID,
+  INITIAL_OWNER_ROLE_NAME,
+  INITIAL_OWNER_MODULE_PERMISSIONS,
+  createInitialOwnerModulePermissions
+} from "../src/domain/userAccessPolicy.mjs";
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
 const configPath = path.join(rootDir, "..", "config", "app-config.example.json");
@@ -21,6 +27,24 @@ test("labelPrint config is defined centrally and labels permission is role-based
   assert.equal(typeof config.labelPrint.maxImageSizeMb, "number");
   assert.ok(config.auth.modules.some((module) => module.id === "labels" && module.viewPermission === "labels:manage"));
   assert.ok(config.auth.roles.find((role) => role.id === "admin").modulePermissions.some((permission) => permission.moduleId === "labels" && permission.canEdit));
+});
+
+test("initial owner access policy matches the tracked owner configuration and returns independent copies", async () => {
+  const config = JSON.parse(await fs.readFile(configPath, "utf8"));
+  const configuredOwner = config.auth.roles.find((role) => role.id === "owner");
+  assert.equal(INITIAL_OWNER_ROLE_ID, configuredOwner.id);
+  assert.equal(INITIAL_OWNER_ROLE_NAME, null);
+  assert.deepEqual(INITIAL_OWNER_MODULE_PERMISSIONS, configuredOwner.modulePermissions);
+  assert.equal(Object.isFrozen(INITIAL_OWNER_MODULE_PERMISSIONS), true);
+  assert.equal(INITIAL_OWNER_MODULE_PERMISSIONS.every(Object.isFrozen), true);
+
+  const first = createInitialOwnerModulePermissions();
+  const second = createInitialOwnerModulePermissions();
+  assert.notEqual(first, second);
+  assert.notEqual(first[0], second[0]);
+  first[0].canEdit = false;
+  assert.equal(second[0].canEdit, true);
+  assert.equal(INITIAL_OWNER_MODULE_PERMISSIONS[0].canEdit, true);
 });
 
 test("pre-pack guide image rules are defined centrally", async () => {
