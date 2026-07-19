@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rename, rm, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -52,12 +52,17 @@ test("default migrations apply storage schemas in numeric order", async (t) => {
       version: 4,
       name: "004_users.sql",
       appliedAt: "2026-07-14T10:00:00.000Z"
+    },
+    {
+      version: 5,
+      name: "005_usernames.sql",
+      appliedAt: "2026-07-14T10:00:00.000Z"
     }
   ]);
   assert.equal(result.applied.every(({ checksumSha256 }) => /^[a-f0-9]{64}$/.test(checksumSha256)), true);
-  assert.equal(result.currentVersion, 4);
-  assert.equal(readSqliteSchemaVersion(database), 4);
-  assert.equal(database.prepare("PRAGMA user_version").get().user_version, 4);
+  assert.equal(result.currentVersion, 5);
+  assert.equal(readSqliteSchemaVersion(database), 5);
+  assert.equal(database.prepare("PRAGMA user_version").get().user_version, 5);
 
   const tables = database.prepare(`
     SELECT name FROM sqlite_schema
@@ -84,7 +89,8 @@ test("default migrations apply storage schemas in numeric order", async (t) => {
     { version: 1, name: "001_storage_foundation.sql", applied_at: "2026-07-14T10:00:00.000Z" },
     { version: 2, name: "002_pack_records.sql", applied_at: "2026-07-14T10:00:00.000Z" },
     { version: 3, name: "003_orders_labels.sql", applied_at: "2026-07-14T10:00:00.000Z" },
-    { version: 4, name: "004_users.sql", applied_at: "2026-07-14T10:00:00.000Z" }
+    { version: 4, name: "004_users.sql", applied_at: "2026-07-14T10:00:00.000Z" },
+    { version: 5, name: "005_usernames.sql", applied_at: "2026-07-14T10:00:00.000Z" }
   ]);
   assert.deepEqual(
     migrationRows.map(({ checksum_sha256 }) => checksum_sha256),
@@ -99,8 +105,8 @@ test("migration runner is safe to run repeatedly", async (t) => {
   const repeated = await runSqliteMigrations(database);
 
   assert.deepEqual(repeated.applied, []);
-  assert.equal(repeated.currentVersion, 4);
-  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get().count, 4);
+  assert.equal(repeated.currentVersion, 5);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get().count, 5);
 });
 
 test("migration runner can preserve a workflow pinned to schema version 2", async (t) => {
@@ -125,14 +131,14 @@ test("migration runner can preserve a workflow pinned to schema version 2", asyn
 
 test("maximumVersion rejects invalid or unavailable targets without mutation", async (t) => {
   const database = await managedInMemoryDatabase(t);
-  for (const maximumVersion of [0, -1, 1.5, Number.NaN, "2", 5]) {
+  for (const maximumVersion of [0, -1, 1.5, Number.NaN, "2", 6]) {
     await assert.rejects(
       runSqliteMigrations(database, { maximumVersion }),
       (error) => {
         assert.equal(error instanceof SqliteMigrationError, true);
         assert.equal(
           error.code,
-          maximumVersion === 5
+          maximumVersion === 6
             ? "SQLITE_MIGRATION_TARGET_UNAVAILABLE"
             : "SQLITE_MIGRATION_TARGET_INVALID"
         );
@@ -148,11 +154,220 @@ test("maximumVersion rejects invalid or unavailable targets without mutation", a
 
 test("maximumVersion accepts the exact latest target", async (t) => {
   const database = await managedInMemoryDatabase(t);
-  const result = await runSqliteMigrations(database, { maximumVersion: 4 });
+  const result = await runSqliteMigrations(database, { maximumVersion: 5 });
 
-  assert.deepEqual(result.applied.map((migration) => migration.version), [1, 2, 3, 4]);
-  assert.equal(result.currentVersion, 4);
-  assert.equal(result.latestSupportedVersion, 4);
+  assert.deepEqual(result.applied.map((migration) => migration.version), [1, 2, 3, 4, 5]);
+  assert.equal(result.currentVersion, 5);
+  assert.equal(result.latestSupportedVersion, 5);
+});
+
+test("migration 005 preserves populated version-4 Users data and adds nullable usernames once", async (t) => {
+  const database = await managedInMemoryDatabase(t);
+  await runSqliteMigrations(database, { maximumVersion: 4 });
+  insertVersion4User(database);
+  database.prepare(`
+    INSERT INTO main.user_module_permissions
+      (user_id, permission_sequence, module_id, can_view, can_edit)
+    VALUES ('USR-MIGRATION-1', 0, 'pack', 1, 1)
+  `).run();
+  database.prepare(`
+    INSERT INTO main.user_audit_logs
+      (audit_sequence, event_code, actor_user_id, subject_user_id, at)
+    VALUES (7, 'create_user', 'USR-MIGRATION-1', 'USR-MIGRATION-1', '2026-07-14T10:00:00.000Z')
+  `).run();
+  database.prepare(`
+    INSERT INTO main.user_audit_log_fields
+      (audit_sequence, field_sequence, field_name)
+    VALUES (7, 0, 'email')
+  `).run();
+  database.prepare(`
+    INSERT INTO main.user_activity_logs
+      (activity_sequence, event_code, actor_user_id, subject_user_id, module_id, at)
+    VALUES (9, 'create_user', 'USR-MIGRATION-1', 'USR-MIGRATION-1', 'users', '2026-07-14T10:00:00.000Z')
+  `).run();
+  const preserved = snapshotUserStorage(database);
+
+  const upgraded = await runSqliteMigrations(database, { maximumVersion: 5 });
+  const repeated = await runSqliteMigrations(database, { maximumVersion: 5 });
+
+  assert.deepEqual(upgraded.applied.map((migration) => migration.version), [5]);
+  assert.deepEqual(repeated.applied, []);
+  assert.equal(database.prepare("PRAGMA main.user_version").get().user_version, 5);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM main.schema_migrations").get().count, 5);
+  const migratedUser = { ...database.prepare("SELECT * FROM main.users").get() };
+  assert.equal(migratedUser.username, null);
+  assert.equal(migratedUser.username_normalized, null);
+  delete migratedUser.username;
+  delete migratedUser.username_normalized;
+  assert.deepEqual(migratedUser, preserved.users[0]);
+  assert.deepEqual(snapshotUserStorage(database).permissions, preserved.permissions);
+  assert.deepEqual(snapshotUserStorage(database).auditLogs, preserved.auditLogs);
+  assert.deepEqual(snapshotUserStorage(database).auditFields, preserved.auditFields);
+  assert.deepEqual(snapshotUserStorage(database).activityLogs, preserved.activityLogs);
+  assert.throws(
+    () => database.prepare("UPDATE main.user_audit_log_fields SET field_name = 'username'").run(),
+    /append-only/
+  );
+  assert.throws(
+    () => database.prepare("DELETE FROM main.user_audit_log_fields").run(),
+    /append-only/
+  );
+});
+
+test("migration 005 direct SQL enforces username syntax, reservation, and cross-namespace rules", async (t) => {
+  const database = await migratedDatabase(t);
+  insertVersion5User(database, { id: "USR-DIRECT-1", username: "Valid.User", email: "first@example.test" });
+  assert.equal(database.prepare(`
+    SELECT username_normalized FROM main.users WHERE id = 'USR-DIRECT-1'
+  `).get().username_normalized, "valid.user");
+
+  const invalidUsernames = [null, "ab", "_abc", "abc_", "has space", "has@at", "has/slash", "has\\slash", "has:colon", "ผู้ใช้", "a".repeat(65)];
+  invalidUsernames.forEach((username, index) => {
+    assert.throws(
+      () => insertVersion5User(database, {
+        id: `USR-INVALID-${index}`,
+        username,
+        email: `invalid-${index}@example.test`
+      }),
+      /username|required|CHECK constraint failed/
+    );
+  });
+  assert.throws(
+    () => insertVersion5User(database, { id: "USR-DUPLICATE", username: "VALID.user", email: "duplicate@example.test" }),
+    /UNIQUE constraint failed/
+  );
+  database.prepare("UPDATE main.users SET active = 0 WHERE id = 'USR-DIRECT-1'").run();
+  assert.throws(
+    () => insertVersion5User(database, { id: "USR-INACTIVE-DUP", username: "valid.USER", email: "inactive@example.test" }),
+    /UNIQUE constraint failed/
+  );
+  database.prepare(`
+    UPDATE main.users SET deleted_at = '2026-07-14T10:00:00.000Z', updated_at = '2026-07-14T10:00:00.000Z'
+    WHERE id = 'USR-DIRECT-1'
+  `).run();
+  assert.throws(
+    () => insertVersion5User(database, { id: "USR-TOMBSTONE-DUP", username: "Valid.User", email: "tombstone@example.test" }),
+    /UNIQUE constraint failed/
+  );
+  insertVersion5User(database, { id: "USR-NAMESPACE-1", username: "Second.User", email: "reserved.identity" });
+  assert.throws(
+    () => insertVersion5User(database, { id: "USR-NAMESPACE-2", username: "RESERVED.IDENTITY", email: "other@example.test" }),
+    /identity collision/
+  );
+  assert.throws(
+    () => insertVersion5User(database, { id: "USR-NAMESPACE-3", username: "Third.User", email: "second.user" }),
+    /identity collision/
+  );
+  assert.throws(
+    () => database.prepare("UPDATE main.users SET username = 'Assigned.User' WHERE id = 'USR-DIRECT-1'").run(),
+    /tombstone|immutable/
+  );
+});
+
+test("migration 005 identity collisions read main.users despite a compatible TEMP users shadow", async (t) => {
+  const database = await managedInMemoryDatabase(t);
+  await runSqliteMigrations(database, { maximumVersion: 4 });
+  insertVersion4User(database, {
+    id: "USR-LEGACY-1",
+    email: "legacy.user",
+    name: "Legacy User",
+    password_salt: "legacy-salt",
+    password_hash: "c".repeat(64)
+  });
+  const legacyBefore = database.prepare(`
+    SELECT id, email, email_normalized, name, role_id, role_name, employee_name, employee_id,
+           active, created_at, updated_at, deleted_at
+    FROM main.users WHERE id = 'USR-LEGACY-1'
+  `).get();
+  const legacyCredentialFingerprint = createHash("sha256").update(
+    `${database.prepare("SELECT password_salt FROM main.users WHERE id = 'USR-LEGACY-1'").get().password_salt}\u0000${database.prepare("SELECT password_hash FROM main.users WHERE id = 'USR-LEGACY-1'").get().password_hash}`
+  ).digest("hex");
+
+  await runSqliteMigrations(database, { maximumVersion: 5 });
+  assert.equal(database.prepare("SELECT username FROM main.users WHERE id = 'USR-LEGACY-1'").get().username, null);
+  assert.equal(database.prepare("SELECT username_normalized FROM main.users WHERE id = 'USR-LEGACY-1'").get().username_normalized, null);
+  database.exec(`
+    CREATE TEMP TABLE users (
+      id TEXT,
+      email_normalized TEXT,
+      username_normalized TEXT
+    ) STRICT;
+  `);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM temp.users").get().count, 0);
+  assert.equal(database.prepare(`
+    SELECT COUNT(*) AS count FROM main.users WHERE username_normalized = lower('LEGACY.USER')
+  `).get().count, 0);
+  assert.equal(database.prepare(`
+    SELECT COUNT(*) AS count FROM main.users WHERE email_normalized = lower('different@example.test')
+  `).get().count, 0);
+
+  assert.throws(
+    () => insertVersion5User(database, {
+      id: "USR-TEMP-SHADOW-2",
+      username: "LEGACY.USER",
+      email: "different@example.test"
+    }),
+    /identity collision/
+  );
+
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM main.users").get().count, 1);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM main.user_module_permissions").get().count, 0);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM main.user_audit_logs").get().count, 0);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM main.user_audit_log_fields").get().count, 0);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM main.user_activity_logs").get().count, 0);
+  assert.deepEqual(database.prepare(`
+    SELECT id, email, email_normalized, name, role_id, role_name, employee_name, employee_id,
+           active, created_at, updated_at, deleted_at
+    FROM main.users WHERE id = 'USR-LEGACY-1'
+  `).get(), legacyBefore);
+  const legacyCredentialFingerprintAfter = createHash("sha256").update(
+    `${database.prepare("SELECT password_salt FROM main.users WHERE id = 'USR-LEGACY-1'").get().password_salt}\u0000${database.prepare("SELECT password_hash FROM main.users WHERE id = 'USR-LEGACY-1'").get().password_hash}`
+  ).digest("hex");
+  assert.equal(legacyCredentialFingerprintAfter === legacyCredentialFingerprint, true);
+});
+
+test("migration 005 failure restores the exact populated version-4 schema and data", async (t) => {
+  const database = await managedInMemoryDatabase(t);
+  const migrationsDirectory = await copyDefaultMigrations(t, "smartrecord-usernames-rollback-");
+  await runSqliteMigrations(database, { migrationsDirectory, maximumVersion: 4 });
+  insertVersion4User(database);
+  const schemaBefore = snapshotMainSchema(database);
+  const dataBefore = snapshotUserStorage(database);
+  const fifthPath = path.join(migrationsDirectory, "005_usernames.sql");
+  await writeFile(fifthPath, `${await readFile(fifthPath, "utf8")}\nINSERT INTO main.missing_migration_table VALUES (1);\n`);
+
+  await assert.rejects(
+    runSqliteMigrations(database, { migrationsDirectory, maximumVersion: 5 }),
+    (error) => error instanceof SqliteMigrationError && error.code === "SQLITE_MIGRATION_APPLY_FAILED"
+  );
+  assert.equal(database.prepare("PRAGMA main.user_version").get().user_version, 4);
+  assert.deepEqual(snapshotMainSchema(database), schemaBefore);
+  assert.deepEqual(snapshotUserStorage(database), dataBefore);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM main.schema_migrations").get().count, 4);
+});
+
+test("migration source compatibility keeps 001-004 exact, has no 006, and detects an edited 005", async (t) => {
+  const migrationDirectory = path.dirname(defaultMigrationPath);
+  const expectedHashes = new Map([
+    ["001_storage_foundation.sql", "d8aea4002c75f72c3a4a7a1e9947263d5cdd59aa7e915eb013d745066b11b574"],
+    ["002_pack_records.sql", "3814f6d4bb752702dcc7837b89323773aa3503a37e71c189b20012b667765391"],
+    ["003_orders_labels.sql", "3be71e29cba5122402ad155da16dcca5ea71c1226a1ad927d08e126ec7cf23ae"],
+    ["004_users.sql", "1e9ef42d02bcb6235221d2439b6bb25f7ed031bf4ad6eebd1bde1d5c655584d8"]
+  ]);
+  for (const [name, hash] of expectedHashes) {
+    assert.equal(await sha256File(path.join(migrationDirectory, name)), hash);
+  }
+  assert.equal((await readdir(migrationDirectory)).some((name) => /^006_.*\.sql$/u.test(name)), false);
+
+  const database = await managedInMemoryDatabase(t);
+  const migrationsDirectory = await copyDefaultMigrations(t, "smartrecord-usernames-checksum-");
+  await runSqliteMigrations(database, { migrationsDirectory });
+  const fifthPath = path.join(migrationsDirectory, "005_usernames.sql");
+  await writeFile(fifthPath, `${await readFile(fifthPath, "utf8")}\n-- edited\n`);
+  await assert.rejects(
+    runSqliteMigrations(database, { migrationsDirectory }),
+    (error) => error instanceof SqliteMigrationError && error.code === "SQLITE_MIGRATION_CHECKSUM_MISMATCH"
+  );
 });
 
 test("maximumVersion 3 preserves the Orders and Labels schema without Users tables", async (t) => {
@@ -187,7 +402,7 @@ test("maximumVersion rejects a newer existing database explicitly without mutati
       && error.code === "SQLITE_SCHEMA_VERSION_UNSUPPORTED"
   );
 
-  assert.equal(database.prepare("PRAGMA user_version").get().user_version, 4);
+  assert.equal(database.prepare("PRAGMA user_version").get().user_version, 5);
   assert.deepEqual(database.prepare(`
     SELECT version, name, checksum_sha256, applied_at
     FROM schema_migrations ORDER BY version
@@ -590,7 +805,7 @@ test("migration runner rejects a missing already-applied migration file", async 
 
 test("migration runner refuses unsupported future schema versions", async (t) => {
   const database = await managedInMemoryDatabase(t);
-  database.exec("PRAGMA user_version = 5");
+  database.exec("PRAGMA user_version = 6");
 
   await assert.rejects(
     runSqliteMigrations(database),
@@ -611,8 +826,8 @@ test("migration runner mirrors the latest applied migration to PRAGMA user_versi
 
   await runSqliteMigrations(database);
 
-  assert.equal(readSqliteSchemaVersion(database), 4);
-  assert.equal(database.prepare("PRAGMA user_version").get().user_version, 4);
+  assert.equal(readSqliteSchemaVersion(database), 5);
+  assert.equal(database.prepare("PRAGMA user_version").get().user_version, 5);
 });
 
 test("metadata helpers create, read, update, list, and delete JSON values", async (t) => {
@@ -745,6 +960,80 @@ function insertVideo(database, overrides = {}) {
     INSERT INTO pack_record_videos (${columns.join(", ")})
     VALUES (${columns.map(() => "?").join(", ")})
   `).run(...columns.map((column) => video[column]));
+}
+
+function insertVersion4User(database, overrides = {}) {
+  const user = {
+    id: "USR-MIGRATION-1",
+    email: "Migration.User@Example.Test",
+    name: "Migration User",
+    role_id: "packer",
+    role_name: null,
+    employee_name: "Existing Employee",
+    employee_id: "EMP-005",
+    active: 1,
+    password_salt: "existing-salt",
+    password_hash: "a".repeat(64),
+    created_at: "2026-07-14T10:00:00.000Z",
+    updated_at: "2026-07-14T10:00:00.000Z",
+    deleted_at: null,
+    ...overrides
+  };
+  const columns = Object.keys(user);
+  return database.prepare(`
+    INSERT INTO main.users (${columns.join(", ")})
+    VALUES (${columns.map(() => "?").join(", ")})
+  `).run(...columns.map((column) => user[column]));
+}
+
+function insertVersion5User(database, { id, username, email }) {
+  return database.prepare(`
+    INSERT INTO main.users (
+      id, username, email, name, role_id, role_name, employee_name, employee_id,
+      active, password_salt, password_hash, created_at, updated_at, deleted_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id, username, email, "Direct User", "packer", null, null, null, 1,
+    "direct-salt", "b".repeat(64), "2026-07-14T10:00:00.000Z",
+    "2026-07-14T10:00:00.000Z", null
+  );
+}
+
+function snapshotUserStorage(database) {
+  const rows = (table, order) => database.prepare(`
+    SELECT * FROM main.${table} ORDER BY ${order}
+  `).all().map((row) => ({ ...row }));
+  return {
+    users: rows("users", "user_sequence"),
+    permissions: rows("user_module_permissions", "user_id, permission_sequence"),
+    auditLogs: rows("user_audit_logs", "audit_sequence"),
+    auditFields: rows("user_audit_log_fields", "audit_sequence, field_sequence"),
+    activityLogs: rows("user_activity_logs", "activity_sequence")
+  };
+}
+
+function snapshotMainSchema(database) {
+  return database.prepare(`
+    SELECT type, name, tbl_name, sql
+    FROM main.sqlite_schema
+    WHERE name NOT LIKE 'sqlite_%'
+    ORDER BY type, name
+  `).all().map((row) => ({ ...row }));
+}
+
+async function copyDefaultMigrations(t, prefix) {
+  const directory = await temporaryDirectory(t, prefix);
+  const sourceDirectory = path.dirname(defaultMigrationPath);
+  for (const name of [
+    "001_storage_foundation.sql",
+    "002_pack_records.sql",
+    "003_orders_labels.sql",
+    "004_users.sql",
+    "005_usernames.sql"
+  ]) {
+    await writeFile(path.join(directory, name), await readFile(path.join(sourceDirectory, name)));
+  }
+  return directory;
 }
 
 async function managedInMemoryDatabase(t) {

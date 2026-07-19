@@ -9,7 +9,7 @@ import {
 } from "../src/storage/sqliteDatabase.mjs";
 import { runSqliteMigrations } from "../src/storage/migrate.mjs";
 
-const TARGET_SCHEMA_VERSION = 4;
+const TARGET_SCHEMA_VERSION = 5;
 const MAX_SHUTDOWN_REASON_LENGTH = 128;
 const OPTION_KEYS = new Set([
   "server",

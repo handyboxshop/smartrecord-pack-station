@@ -124,14 +124,14 @@ function assertPublicShape(settings) {
   assert.equal("expectedUpdatedAt" in settings.systemAssets.prePackGuideImage, false);
 }
 
-async function databaseFixture(t, maximumVersion = 4) {
+async function databaseFixture(t, maximumVersion = 5) {
   const database = await openInMemoryDatabase();
   t.after(() => closeSqliteDatabase(database));
   await runSqliteMigrations(database, { maximumVersion, now: fixedNow });
   return database;
 }
 
-async function repositoryFixture(t, maximumVersion = 4, options = { now: fixedNow }) {
+async function repositoryFixture(t, maximumVersion = 5, options = { now: fixedNow }) {
   const database = await databaseFixture(t, maximumVersion);
   return {
     database,
@@ -249,8 +249,8 @@ test("schema validation inspects main even when TEMP has a compatible shadow", a
   );
 });
 
-test("accepts schema versions 1 through 4 and higher compatible versions", async (t) => {
-  for (const version of [1, 2, 3, 4]) {
+test("accepts schema versions 1 through 5 and higher compatible versions", async (t) => {
+  for (const version of [1, 2, 3, 4, 5]) {
     const database = await databaseFixture(t, version);
     const repository = createAppSettingsRepository(database, { now: fixedNow });
     assert.equal(repository.getSettings(), null);
@@ -972,15 +972,15 @@ test("Phase 4B schema-version-2 import, verification, repository use, and upgrad
   assert.equal(verifyPackRecordImport(database, sourceRecords, importResult).ok, true);
 
   const migrationResult = await runSqliteMigrations(database, { now: fixedNow });
-  assert.deepEqual(migrationResult.applied.map((migration) => migration.version), [3, 4]);
-  assert.equal(database.prepare("PRAGMA user_version").get().user_version, 4);
+  assert.deepEqual(migrationResult.applied.map((migration) => migration.version), [3, 4, 5]);
+  assert.equal(database.prepare("PRAGMA user_version").get().user_version, 5);
   assert.deepEqual(
     createAppSettingsRepository(database, { now: fixedNow }).getSettings(),
     settings
   );
   const repeated = await runSqliteMigrations(database, { now: fixedNow });
   assert.deepEqual(repeated.applied, []);
-  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get().count, 4);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get().count, 5);
 });
 
 test("caller-owned file database remains usable and temporary artifacts stay outside the repository", async (t) => {

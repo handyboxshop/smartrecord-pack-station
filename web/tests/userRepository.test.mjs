@@ -21,16 +21,17 @@ const FIXED_TIME = "2026-07-16T12:00:00.000Z";
 const PASSWORD_HASH = "a".repeat(64);
 const UPDATED_PASSWORD_HASH = "b".repeat(64);
 
-test("migration 004 creates strict Users storage without an initial administrator", async (t) => {
+test("migration 005 creates strict username-ready Users storage without an initial administrator", async (t) => {
   const { database, databasePath } = await migratedDatabase(t);
-  assert.equal(database.prepare("PRAGMA user_version").get().user_version, 4);
+  assert.equal(database.prepare("PRAGMA user_version").get().user_version, 5);
   assert.deepEqual(database.prepare(`
     SELECT version, name FROM schema_migrations ORDER BY version
   `).all().map((row) => [row.version, row.name]), [
     [1, "001_storage_foundation.sql"],
     [2, "002_pack_records.sql"],
     [3, "003_orders_labels.sql"],
-    [4, "004_users.sql"]
+    [4, "004_users.sql"],
+    [5, "005_usernames.sql"]
   ]);
   const strictTables = new Map(database.prepare("PRAGMA table_list").all().map((row) => [row.name, row.strict]));
   for (const table of ["users", "user_module_permissions", "user_audit_logs", "user_activity_logs"]) {
@@ -417,6 +418,7 @@ test("complete User round-trip preserves original email and normalizes lookup on
 
   assert.deepEqual(created, {
     id: "USR-TEST-1",
+    username: "user-test-1",
     email: "Mixed.Case@Example.Local",
     name: "Test User",
     roleId: "packer",
@@ -727,7 +729,7 @@ test("plaintext password, unknown fields, malformed permissions, and unbounded i
     [{ ...sampleUser(), token: "token-value" }, "USER_INPUT_INVALID"],
     [{ ...sampleUser(), name: "x".repeat(201) }, "USER_INPUT_INVALID"],
     [{ ...sampleUser(), name: `safe\0${"x".repeat(1000)}` }, "USER_INPUT_INVALID"],
-    [{ ...sampleUser(), email: "ผู้ใช้@example.local" }, "USER_EMAIL_REQUIRED"],
+    [{ ...sampleUser(), email: "ผู้ใช้@example.local" }, "USER_EMAIL_INVALID"],
     [{ ...sampleUser(), passwordSalt: undefined }, "USER_PASSWORD_METADATA_INVALID"],
     [{ ...sampleUser(), passwordHash: undefined }, "USER_PASSWORD_METADATA_INVALID"],
     [{ ...sampleUser(), passwordSalt: `salt\0${"x".repeat(1000)}` }, "USER_PASSWORD_METADATA_INVALID"],
@@ -813,7 +815,7 @@ test("standalone structured audit parent and field rows append atomically", asyn
   );
   assertSanitized(error, ["private audit field marker", PASSWORD_HASH]);
   assert.equal(database.prepare("SELECT COUNT(*) AS count FROM user_audit_logs").get().count, 1);
-  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM user_audit_log_fields").get().count, 6);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM user_audit_log_fields").get().count, 7);
 });
 
 test("structured audit and activity logs are append-only, newest-first, and ID-filtered", async (t) => {
@@ -1097,6 +1099,143 @@ test("repository module has no filesystem or runtime JSON dependency", async () 
   assert.doesNotMatch(source, /node:fs|readFile|writeFile|runtime|app-config|SMARTRECORD_SQLITE_DATABASE_PATH/);
 });
 
+test("schema 5 is required and schema 4 is rejected without mutation", async (t) => {
+  const directory = await mkdtemp(path.join(tmpdir(), "smartrecord-users-v4-"));
+  const database = await openSqliteDatabase(path.join(directory, "users.sqlite"));
+  t.after(async () => {
+    closeSqliteDatabase(database);
+    await rm(directory, { recursive: true, force: true });
+  });
+  await runSqliteMigrations(database, { maximumVersion: 4, now: fixedNow });
+  expectRepositoryError(() => createUserRepository(database), "USER_SCHEMA_REQUIRED");
+  assert.equal(database.prepare("PRAGMA main.user_version").get().user_version, 4);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM main.users").get().count, 0);
+});
+
+test("username reads and unified authentication preserve public and credential boundaries", async (t) => {
+  const { repository } = await repositoryFixture(t);
+  const created = createUser(repository, sampleUser({ username: "Mixed.User" }));
+  assert.equal(created.username, "Mixed.User");
+  assert.deepEqual(repository.getUserByUsername(" mixed.USER "), created);
+  assert.equal(repository.getUserByUsername("missing.user"), null);
+  assert.deepEqual(repository.getUserForAuthenticationByIdentity("MIXED.USER"), {
+    id: created.id,
+    username: created.username,
+    email: created.email,
+    active: true,
+    passwordSalt: "test-salt",
+    passwordHash: PASSWORD_HASH
+  });
+  assert.deepEqual(repository.getUserForAuthenticationByIdentity("TEST@EXAMPLE.LOCAL"), {
+    id: created.id,
+    username: created.username,
+    email: created.email,
+    active: true,
+    passwordSalt: "test-salt",
+    passwordHash: PASSWORD_HASH
+  });
+  for (const publicValue of [created, repository.getUserByUsername(created.username), repository.getUserByEmail(created.email)]) {
+    assert.equal("usernameNormalized" in publicValue, false);
+    assert.equal("emailNormalized" in publicValue, false);
+    assert.equal("passwordSalt" in publicValue, false);
+    assert.equal("passwordHash" in publicValue, false);
+  }
+  expectRepositoryError(
+    () => repository.getUserByUsername(created.username, { unknown: true }),
+    "USER_READ_OPTIONS_INVALID"
+  );
+  expectRepositoryError(
+    () => repository.getUserForAuthenticationByIdentity("ผู้ใช้"),
+    "USER_LOGIN_IDENTITY_INVALID"
+  );
+});
+
+test("legacy null username can be assigned exactly once to active or inactive non-tombstones", async (t) => {
+  const directory = await mkdtemp(path.join(tmpdir(), "smartrecord-users-legacy-"));
+  const databasePath = path.join(directory, "users.sqlite");
+  const database = await openSqliteDatabase(databasePath);
+  t.after(async () => {
+    closeSqliteDatabase(database);
+    await rm(directory, { recursive: true, force: true });
+  });
+  await runSqliteMigrations(database, { maximumVersion: 4, now: fixedNow });
+  database.prepare(`
+    INSERT INTO main.users (
+      id, email, name, role_id, role_name, employee_name, employee_id, active,
+      password_salt, password_hash, created_at, updated_at, deleted_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run("USR-LEGACY-1", "legacy@example.test", "Legacy", "packer", null, null, null, 0,
+    "legacy-salt", PASSWORD_HASH, FIXED_TIME, FIXED_TIME, null);
+  await runSqliteMigrations(database, { maximumVersion: 5, now: fixedNow });
+  const repository = createUserRepository(database, { now: fixedNow });
+  assert.equal(repository.getUserById("USR-LEGACY-1", { includeInactive: true }).username, null);
+  const assigned = repository.assignLegacyUsername("USR-LEGACY-1", "Legacy.User", { actorUserId: "USR-LEGACY-1" });
+  assert.equal(assigned.username, "Legacy.User");
+  assert.equal(assigned.active, false);
+  assert.deepEqual(repository.listAuditLogs()[0].changedFields, ["username"]);
+  assert.equal(repository.listActivityLogs()[0].action, "update_user");
+  expectRepositoryError(
+    () => repository.assignLegacyUsername("USR-LEGACY-1", "Changed.User", { actorUserId: "USR-LEGACY-1" }),
+    "USER_USERNAME_IMMUTABLE"
+  );
+});
+
+test("username uniqueness and cross-namespace conflicts include inactive and tombstoned rows", async (t) => {
+  const { repository, database } = await repositoryFixture(t);
+  const first = createUser(repository, sampleUser({ username: "Reserved.User" }));
+  repository.setUserActive(first.id, false, mutationContext());
+  expectRepositoryError(
+    () => createUser(repository, sampleUser({ id: "USR-TEST-2", username: "reserved.USER", email: "second@example.test" })),
+    "USER_USERNAME_EXISTS"
+  );
+  insertDirectUser(database, {
+    id: "USR-LEGACY-ID",
+    username: "Other.User",
+    email: "legacyname",
+    active: false
+  });
+  expectRepositoryError(
+    () => createUser(repository, sampleUser({ id: "USR-TEST-3", username: "LegacyName", email: "third@example.test" })),
+    "USER_IDENTITY_CONFLICT"
+  );
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM main.users").get().count, 2);
+});
+
+test("independent connections serialize duplicate username writers", async (t) => {
+  const fixture = await repositoryFixture(t);
+  const secondDatabase = await openSqliteDatabase(fixture.databasePath);
+  t.after(() => closeSqliteDatabase(secondDatabase));
+  const secondRepository = createUserRepository(secondDatabase, { now: fixedNow });
+  createUser(fixture.repository, sampleUser({ username: "Concurrent.User" }));
+  expectRepositoryError(
+    () => createUser(secondRepository, sampleUser({ id: "USR-TEST-2", username: "concurrent.user", email: "second@example.test" })),
+    "USER_USERNAME_EXISTS"
+  );
+  assert.equal(secondDatabase.prepare("SELECT COUNT(*) AS count FROM main.users").get().count, 1);
+});
+
+test("compatible TEMP shadows cannot redirect persistent User repository reads or writes", async (t) => {
+  const fixture = await migratedDatabase(t);
+  fixture.database.exec(`
+    CREATE TEMP TABLE users AS SELECT * FROM main.users WHERE 0;
+    CREATE TEMP TABLE user_module_permissions AS SELECT * FROM main.user_module_permissions WHERE 0;
+    CREATE TEMP TABLE user_audit_logs AS SELECT * FROM main.user_audit_logs WHERE 0;
+    CREATE TEMP TABLE user_audit_log_fields AS SELECT * FROM main.user_audit_log_fields WHERE 0;
+    CREATE TEMP VIEW user_activity_logs AS SELECT * FROM main.user_activity_logs WHERE 0;
+  `);
+  const repository = createUserRepository(fixture.database, { now: fixedNow });
+  const created = createUser(repository);
+  assert.equal(repository.getUserByUsername(created.username).id, created.id);
+  assert.equal(fixture.database.prepare("SELECT COUNT(*) AS count FROM main.users").get().count, 1);
+  assert.equal(fixture.database.prepare("SELECT COUNT(*) AS count FROM temp.users").get().count, 0);
+  assert.equal(fixture.database.prepare("SELECT COUNT(*) AS count FROM main.user_module_permissions").get().count, 2);
+  assert.equal(fixture.database.prepare("SELECT COUNT(*) AS count FROM temp.user_module_permissions").get().count, 0);
+  assert.equal(fixture.database.prepare("SELECT COUNT(*) AS count FROM main.user_audit_logs").get().count, 1);
+  assert.equal(fixture.database.prepare("SELECT COUNT(*) AS count FROM temp.user_audit_logs").get().count, 0);
+  assert.equal(fixture.database.prepare("SELECT COUNT(*) AS count FROM main.user_activity_logs").get().count, 1);
+  assert.equal(fixture.database.prepare("SELECT COUNT(*) AS count FROM temp.user_activity_logs").get().count, 0);
+});
+
 async function migratedDatabase(t) {
   const directory = await mkdtemp(path.join(tmpdir(), "smartrecord-users-repository-"));
   const databasePath = path.join(directory, "users.sqlite");
@@ -1120,7 +1259,7 @@ async function repositoryFixture(t) {
 }
 
 function sampleUser(overrides = {}) {
-  return {
+  const user = {
     id: "USR-TEST-1",
     email: "test@example.local",
     name: "Test User",
@@ -1137,6 +1276,10 @@ function sampleUser(overrides = {}) {
     passwordHash: PASSWORD_HASH,
     ...overrides
   };
+  if (!Object.hasOwn(overrides, "username")) {
+    user.username = `user-${user.id.slice(4).toLowerCase()}`;
+  }
+  return user;
 }
 
 function createUser(repository, user = sampleUser()) {
@@ -1176,6 +1319,7 @@ function fixedNow() {
 
 function insertDirectUser(database, {
   id,
+  username = `direct-${String(id).replace(/[^A-Za-z0-9]/g, "-").toLowerCase()}`,
   email,
   name = "Direct User",
   passwordSalt = "direct-salt",
@@ -1187,12 +1331,13 @@ function insertDirectUser(database, {
 }) {
   database.prepare(`
     INSERT INTO users (
-      id, email, name, role_id, role_name,
+      id, username, email, name, role_id, role_name,
       employee_name, employee_id, active, password_salt, password_hash,
       created_at, updated_at, deleted_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
+    username,
     email,
     name,
     "packer",

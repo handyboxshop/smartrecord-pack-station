@@ -1,10 +1,15 @@
 import crypto from "node:crypto";
+import {
+  createPasswordCredentials,
+  verifyPasswordCredentials
+} from "./passwordCredentials.mjs";
+import { normalizeLegacyEmail } from "./userIdentity.mjs";
 
 export function createAuthService({ config, now = () => new Date(), idFactory, initialUsers = null } = {}) {
   if (!config?.auth) throw new Error("auth config is required");
 
   const seedUsers = Array.isArray(initialUsers) ? initialUsers : (config.auth.users || []);
-  const users = new Map(seedUsers.map((user) => [normalizeEmail(user.email), { ...user }]));
+  const users = new Map(seedUsers.map((user) => [normalizeLegacyEmail(user.email), { ...user }]));
   const auditLogs = [];
   const activityLogs = [];
   const sessions = new Map();
@@ -13,9 +18,11 @@ export function createAuthService({ config, now = () => new Date(), idFactory, i
   const ttlMs = (config.auth.session?.ttlHours ?? 12) * 60 * 60 * 1000;
 
   function login({ email, password } = {}) {
-    const user = users.get(normalizeEmail(email));
+    const user = users.get(normalizeLegacyEmail(email));
     if (!user || !user.active) return fail("INVALID_LOGIN", "อีเมลหรือรหัสผ่านไม่ถูกต้อง");
-    if (!verifyPassword(String(password ?? "").trim(), user, iterations)) return fail("INVALID_LOGIN", "อีเมลหรือรหัสผ่านไม่ถูกต้อง");
+    if (!verifyPasswordCredentials(String(password ?? "").trim(), user, { iterations })) {
+      return fail("INVALID_LOGIN", "อีเมลหรือรหัสผ่านไม่ถูกต้อง");
+    }
 
     const token = crypto.randomBytes(32).toString("hex");
     const issuedAt = now();
@@ -87,7 +94,7 @@ export function createAuthService({ config, now = () => new Date(), idFactory, i
   function listActivity(token, { email = "" } = {}) {
     const auth = requirePermission(token, "users:manage");
     if (!auth.ok) return auth;
-    const normalizedEmail = normalizeEmail(email);
+    const normalizedEmail = normalizeLegacyEmail(email);
     const rows = normalizedEmail
       ? activityLogs.filter((log) => log.userEmail === normalizedEmail || log.targetEmail === normalizedEmail)
       : activityLogs;
@@ -98,7 +105,7 @@ export function createAuthService({ config, now = () => new Date(), idFactory, i
     const auth = requirePermission(token, "users:manage");
     if (!auth.ok) return auth;
 
-    const email = normalizeEmail(input.email);
+    const email = normalizeLegacyEmail(input.email);
     const password = String(input.password ?? "");
     const role = findRole(config, input.roleId);
     if (!email) return fail("USER_EMAIL_REQUIRED", "กรุณากรอกอีเมล");
@@ -108,7 +115,7 @@ export function createAuthService({ config, now = () => new Date(), idFactory, i
       return fail("PASSWORD_TOO_SHORT", "รหัสผ่านต้องยาวอย่างน้อย 8 ตัวอักษร");
     }
 
-    const salt = crypto.randomBytes(12).toString("hex");
+    const credentials = createPasswordCredentials(password, { iterations });
     const user = {
       id: `USR-${String(nextId()).replace(/[^a-zA-Z0-9]/g, "").slice(0, 10).toUpperCase()}`,
       email,
@@ -121,8 +128,7 @@ export function createAuthService({ config, now = () => new Date(), idFactory, i
       employeeName: String(input.employeeName ?? "").trim() || null,
       employeeId: String(input.employeeId ?? "").trim() || null,
       active: input.active !== false,
-      passwordSalt: salt,
-      passwordHash: hashPassword(password, salt, iterations)
+      ...credentials
     };
     if (role.id === "custom" && !user.roleName) {
       return fail("CUSTOM_ROLE_NAME_REQUIRED", "กรุณาตั้งชื่อ custom role");
@@ -143,7 +149,7 @@ export function createAuthService({ config, now = () => new Date(), idFactory, i
     const auth = requirePermission(token, "users:manage");
     if (!auth.ok) return auth;
 
-    const email = normalizeEmail(input.email);
+    const email = normalizeLegacyEmail(input.email);
     const user = users.get(email);
     if (!user) return fail("USER_NOT_FOUND", "ไม่พบบัญชีผู้ใช้นี้");
     const before = toPublicUser(user, config);
@@ -168,8 +174,7 @@ export function createAuthService({ config, now = () => new Date(), idFactory, i
       if (password.length < (config.auth.passwordPolicy?.minLength ?? 8)) {
         return fail("PASSWORD_TOO_SHORT", "รหัสผ่านต้องยาวอย่างน้อย 8 ตัวอักษร");
       }
-      user.passwordSalt = crypto.randomBytes(12).toString("hex");
-      user.passwordHash = hashPassword(password, user.passwordSalt, iterations);
+      Object.assign(user, createPasswordCredentials(password, { iterations }));
     }
     users.set(email, user);
     const after = toPublicUser(user, config);
@@ -188,7 +193,7 @@ export function createAuthService({ config, now = () => new Date(), idFactory, i
     const auth = requirePermission(token, "users:manage");
     if (!auth.ok) return auth;
 
-    const user = users.get(normalizeEmail(input.email));
+    const user = users.get(normalizeLegacyEmail(input.email));
     if (!user) return fail("USER_NOT_FOUND", "ไม่พบบัญชีผู้ใช้นี้");
     const before = toPublicUser(user, config);
     user.roleId = "custom";
@@ -214,7 +219,7 @@ export function createAuthService({ config, now = () => new Date(), idFactory, i
       return fail("DELETE_USER_FORBIDDEN", "ลบผู้ใช้งานได้เฉพาะ Owner/Admin");
     }
 
-    const email = normalizeEmail(input.email);
+    const email = normalizeLegacyEmail(input.email);
     const user = users.get(email);
     if (!user) return fail("USER_NOT_FOUND", "ไม่พบบัญชีผู้ใช้นี้");
     const target = toPublicUser(user, config);
@@ -366,7 +371,7 @@ function createActivityLog(user, activity = {}) {
     moduleId: activity.moduleId || "system",
     action: activity.action || "activity",
     targetId: activity.targetId || "",
-    targetEmail: normalizeEmail(activity.targetEmail || ""),
+    targetEmail: normalizeLegacyEmail(activity.targetEmail || ""),
     details: String(activity.details || "").trim()
   };
 }
@@ -417,21 +422,6 @@ function summarizeModulePermissions(modulePermissions = [], config = {}) {
       return `${module?.label || permission.moduleId} (${permission.canEdit ? "แก้ไข" : "ดู"})`;
     })
     .join(", ") || "ไม่มีสิทธิ์";
-}
-
-function verifyPassword(password, user, iterations) {
-  const candidate = hashPassword(String(password ?? ""), user.passwordSalt, iterations);
-  const expected = Buffer.from(user.passwordHash, "hex");
-  const actual = Buffer.from(candidate, "hex");
-  return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
-}
-
-function hashPassword(password, salt, iterations) {
-  return crypto.pbkdf2Sync(password, salt, iterations, 32, "sha256").toString("hex");
-}
-
-function normalizeEmail(email) {
-  return String(email ?? "").trim().toLowerCase();
 }
 
 function ok(data, message = "") {

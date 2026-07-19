@@ -126,6 +126,13 @@ test("login rejects an invalid password", () => {
   assert.equal(result.code, "INVALID_LOGIN");
 });
 
+test("Phase A JSON authentication remains email-only", () => {
+  const service = createService();
+  const result = service.login({ username: "admin", password: "TestAdmin@Local" });
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "INVALID_LOGIN");
+});
+
 test("permission guard rejects users without a required permission", () => {
   const service = createService();
   const login = service.login({ email: "packer@example.local", password: "TestPacker@Local" });
