@@ -502,32 +502,75 @@ test("starting a second server on the same port fails clearly", async (t) => {
   const primary = await startServer(port);
   t.after(() => stopServer(primary));
 
+  const secondaryRuntime = await createPrinterTestRuntime();
+  const secondaryDatabasePath = path.join(secondaryRuntime.dir, "secondary-lifecycle.sqlite");
+
   const secondary = spawn(process.execPath, ["server/index.mjs"], {
     cwd,
-    env: { ...process.env, PORT: String(port) },
+    env: {
+      ...process.env,
+      ...secondaryRuntime.env,
+      PORT: String(port),
+      SMARTRECORD_SQLITE_DATABASE_PATH: secondaryDatabasePath
+    },
     stdio: ["ignore", "pipe", "pipe"]
   });
   const output = [];
   secondary.stdout.on("data", (chunk) => output.push(chunk.toString("utf8")));
   secondary.stderr.on("data", (chunk) => output.push(chunk.toString("utf8")));
 
-  const exitCode = await new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      secondary.kill("SIGKILL");
-      reject(new Error("secondary server did not exit after port conflict"));
-    }, 5000);
-    secondary.on("error", (error) => {
-      clearTimeout(timeout);
-      reject(error);
-    });
-    secondary.on("exit", (code) => {
-      clearTimeout(timeout);
-      resolve(code);
-    });
-  });
+  try {
+    const exitCode = await waitForChildExit(secondary, 5000, "secondary server did not exit after port conflict");
+    const renderedOutput = output.join("");
+    assert.equal(exitCode, 1);
+    assert.match(renderedOutput, /SERVER_LISTEN_FAILED HTTP server failed to start\./u);
+    assert.doesNotMatch(renderedOutput, new RegExp(String(port), "u"));
+    assert.doesNotMatch(renderedOutput, new RegExp(secondaryDatabasePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "u"));
+  } finally {
+    if (secondary.exitCode === null) secondary.kill("SIGKILL");
+    await fs.rm(secondaryRuntime.dir, { recursive: true, force: true });
+  }
+});
 
-  assert.equal(exitCode, 1);
-  assert.match(output.join(""), /already in use|Port .* is already in use/i);
+for (const signal of ["SIGTERM", "SIGINT"]) {
+  test(`${signal} closes through the shared lifecycle and exits cleanly`, async () => {
+    const server = await startServer(nextPort());
+    const exitCode = await stopServer(server, signal);
+    assert.equal(exitCode, 0);
+    assert.match(server.output.join(""), new RegExp(`\\[shutdown\\] ${signal} received`, "u"));
+    assert.match(server.output.join(""), /\[shutdown\] closed cleanly/u);
+    assert.doesNotMatch(server.output.join(""), /SERVER_(?:SHUTDOWN|SQLITE_CLOSE)_FAILED/u);
+  });
+}
+
+test("lifecycle startup failure exits naturally with sanitized output", async () => {
+  const runtime = await createPrinterTestRuntime();
+  const marker = "ATTACKER_DATABASE_PATH_SECRET_68421";
+  const child = spawn(process.execPath, ["server/index.mjs"], {
+    cwd,
+    env: {
+      ...process.env,
+      ...runtime.env,
+      PORT: String(nextPort()),
+      SMARTRECORD_SQLITE_DATABASE_PATH: `relative-${marker}.sqlite`
+    },
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  const output = [];
+  child.stdout.on("data", (chunk) => output.push(chunk.toString("utf8")));
+  child.stderr.on("data", (chunk) => output.push(chunk.toString("utf8")));
+
+  try {
+    const exitCode = await waitForChildExit(child, 5000, "invalid-path server did not exit naturally");
+    const renderedOutput = output.join("");
+    assert.equal(exitCode, 1);
+    assert.match(renderedOutput, /SERVER_SQLITE_PATH_INVALID SQLite database path is invalid\./u);
+    assert.doesNotMatch(renderedOutput, new RegExp(marker, "u"));
+    assert.doesNotMatch(renderedOutput, /serverLifecycle\.mjs|node_modules|\/Users\//u);
+  } finally {
+    if (child.exitCode === null) child.kill("SIGKILL");
+    await fs.rm(runtime.dir, { recursive: true, force: true });
+  }
 });
 
 function nextPort() {
@@ -536,17 +579,42 @@ function nextPort() {
 }
 
 async function startServer(port, env = {}) {
+  let ownedRuntime;
+  if (!env.SMARTRECORD_CONFIG_PATH) {
+    ownedRuntime = await createPrinterTestRuntime();
+    env = { ...ownedRuntime.env, ...env };
+  }
+  const databaseDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "smartrecord-server-runtime-sqlite-"));
+  const databasePath = path.join(databaseDirectory, "server-lifecycle.sqlite");
   const child = spawn(process.execPath, ["server/index.mjs"], {
     cwd,
-    env: { ...process.env, ...env, PORT: String(port) },
+    env: {
+      ...process.env,
+      ...env,
+      PORT: String(port),
+      SMARTRECORD_SQLITE_DATABASE_PATH: databasePath
+    },
     stdio: ["ignore", "pipe", "pipe"]
   });
   const output = [];
   child.stdout.on("data", (chunk) => output.push(chunk.toString("utf8")));
   child.stderr.on("data", (chunk) => output.push(chunk.toString("utf8")));
 
-  await waitForServerReady(port, child, output);
-  return { child, output };
+  const server = {
+    child,
+    output,
+    temporaryDirectories: [databaseDirectory, ...(ownedRuntime ? [ownedRuntime.dir] : [])]
+  };
+  try {
+    await waitForServerReady(port, child, output);
+    return server;
+  } catch (error) {
+    if (child.exitCode === null) child.kill("SIGKILL");
+    await Promise.all(server.temporaryDirectories.map((directory) => (
+      fs.rm(directory, { recursive: true, force: true })
+    )));
+    throw error;
+  }
 }
 
 async function waitForServerReady(port, child, output) {
@@ -566,17 +634,33 @@ async function waitForServerReady(port, child, output) {
   throw new Error(`server did not become ready: ${output.join("")}`);
 }
 
-function stopServer(server) {
-  if (!server?.child || server.child.exitCode !== null) return Promise.resolve();
-  server.child.kill("SIGTERM");
-  return new Promise((resolve) => {
+async function stopServer(server, signal = "SIGTERM") {
+  if (!server?.child) return undefined;
+  let exitCode = server.child.exitCode;
+  if (exitCode === null) {
+    server.child.kill(signal);
+    exitCode = await waitForChildExit(server.child, 5000, "server did not exit after shutdown signal");
+  }
+  await Promise.all((server.temporaryDirectories || []).map((directory) => (
+    fs.rm(directory, { recursive: true, force: true })
+  )));
+  return exitCode;
+}
+
+function waitForChildExit(child, timeoutMs, failureMessage) {
+  if (child.exitCode !== null) return Promise.resolve(child.exitCode);
+  return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
-      if (server.child.exitCode === null) server.child.kill("SIGKILL");
-      resolve();
-    }, 2000);
-    server.child.on("exit", () => {
+      if (child.exitCode === null) child.kill("SIGKILL");
+      reject(new Error(failureMessage));
+    }, timeoutMs);
+    child.once("error", (error) => {
       clearTimeout(timeout);
-      resolve();
+      reject(error);
+    });
+    child.once("exit", (code) => {
+      clearTimeout(timeout);
+      resolve(code);
     });
   });
 }
