@@ -1,4 +1,5 @@
-import { mkdir } from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
+import { lstat, mkdir, open } from "node:fs/promises";
 import path from "node:path";
 import {
   checkSqliteRuntimeCompatibility,
@@ -47,6 +48,52 @@ export async function openSqliteDatabase(databasePath, { createParentDirectory =
 
 export async function openInMemoryDatabase() {
   return openConfiguredDatabase(SQLITE_MEMORY_PATH, true);
+}
+
+/**
+ * Open an existing SQLite file with a caller-owned managed read-only handle.
+ * @param {string} databasePath Absolute or relative path to an existing regular database file.
+ * @returns {Promise<object>} A handle the caller must close with closeSqliteDatabase().
+ * The connection is read-only and query-only and never creates the database or a sidecar.
+ */
+export async function openReadOnlySqliteDatabase(databasePath) {
+  const resolvedPath = validateFileDatabasePath(databasePath);
+  const snapshot = await validateReadOnlyDatabaseSnapshot(resolvedPath);
+
+  const runtime = await getCompatibleSqliteRuntime();
+  let database;
+  try {
+    database = new runtime.DatabaseSync(resolvedPath, { readOnly: true });
+    configureReadOnlyDatabase(database);
+    const journalMode = String(database.prepare("PRAGMA journal_mode").get()?.journal_mode || "").toLowerCase();
+    if (journalMode !== "delete") {
+      throw databaseError(
+        "SQLITE_READ_ONLY_JOURNAL_UNSAFE",
+        "The read-only SQLite connection requires DELETE journal mode."
+      );
+    }
+    await validateReadOnlyDatabaseSnapshot(resolvedPath, snapshot);
+    databaseState.set(database, {
+      path: resolvedPath,
+      isMemory: false,
+      readOnly: true,
+      queryOnly: true,
+      foreignKeys: true,
+      journalMode,
+      busyTimeoutMs: REQUIRED_BUSY_TIMEOUT_MS
+    });
+    return database;
+  } catch (cause) {
+    if (database) {
+      try {
+        database.close();
+      } catch {
+        // The original open/configuration failure is the actionable error.
+      }
+    }
+    if (cause instanceof SqliteStorageError) throw cause;
+    throw databaseError("SQLITE_OPEN_FAILED", "Unable to open the SQLite database safely.", cause);
+  }
 }
 
 export function getSqliteDatabaseConfiguration(database) {
@@ -198,6 +245,105 @@ function configureDatabase(database, { isMemory }) {
 
   database.exec(`PRAGMA busy_timeout = ${REQUIRED_BUSY_TIMEOUT_MS}`);
   validatePragmaNumber(database, "busy_timeout", REQUIRED_BUSY_TIMEOUT_MS);
+}
+
+function configureReadOnlyDatabase(database) {
+  database.exec("PRAGMA foreign_keys = ON");
+  validatePragmaNumber(database, "foreign_keys", 1);
+
+  database.exec("PRAGMA query_only = ON");
+  validatePragmaNumber(database, "query_only", 1);
+
+  database.exec(`PRAGMA busy_timeout = ${REQUIRED_BUSY_TIMEOUT_MS}`);
+  validatePragmaNumber(database, "busy_timeout", REQUIRED_BUSY_TIMEOUT_MS);
+}
+
+async function validateReadOnlyDatabaseSnapshot(databasePath, expectedSnapshot = null) {
+  let handle;
+  try {
+    const databaseStat = await lstat(databasePath);
+    if (!databaseStat.isFile() || databaseStat.isSymbolicLink()) throw new Error();
+    for (const suffix of ["-wal", "-shm", "-journal"]) {
+      try {
+        await lstat(`${databasePath}${suffix}`);
+        throw databaseError(
+          "SQLITE_READ_ONLY_SIDECAR_PRESENT",
+          "A safe sidecar-free read-only database view cannot be proven."
+        );
+      } catch (error) {
+        if (error instanceof SqliteStorageError) throw error;
+        if (error?.code !== "ENOENT") throw error;
+      }
+    }
+    handle = await open(databasePath, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
+    const descriptorStat = await handle.stat();
+    if (!descriptorStat.isFile() || descriptorStat.isSymbolicLink()
+        || !sameFileIdentity(databaseStat, descriptorStat)
+        || !sameStableFileMetadata(databaseStat, descriptorStat)) throw new Error();
+    const header = Buffer.alloc(100);
+    const { bytesRead } = await handle.read(header, 0, header.length, 0);
+    validateDeleteJournalHeader(header, bytesRead, descriptorStat.size);
+    const snapshot = stableFileSnapshot(descriptorStat);
+    if (expectedSnapshot && !sameStableFileMetadata(snapshot, expectedSnapshot)) {
+      throw databaseError("SQLITE_READ_ONLY_DATABASE_CHANGED", "The read-only SQLite database changed during opening.");
+    }
+    return snapshot;
+  } catch (cause) {
+    if (cause instanceof SqliteStorageError) throw cause;
+    throw databaseError(
+      "SQLITE_READ_ONLY_PATH_INVALID",
+      "The read-only SQLite path must identify an existing regular file.",
+      cause
+    );
+  } finally {
+    if (handle) {
+      try { await handle.close(); } catch { /* The primary validation result remains authoritative. */ }
+    }
+  }
+}
+
+function validateDeleteJournalHeader(header, bytesRead, fileSize) {
+  if (fileSize < 100 || bytesRead !== header.length
+      || header.subarray(0, 16).toString("binary") !== "SQLite format 3\0") {
+    throw databaseError("SQLITE_READ_ONLY_HEADER_INVALID", "The read-only SQLite header is invalid.");
+  }
+  const encodedPageSize = header.readUInt16BE(16);
+  const pageSize = encodedPageSize === 1 ? 65536 : encodedPageSize;
+  if (pageSize < 512 || pageSize > 65536 || (pageSize & (pageSize - 1)) !== 0
+      || fileSize % pageSize !== 0
+      || header[21] !== 64 || header[22] !== 32 || header[23] !== 32) {
+    throw databaseError("SQLITE_READ_ONLY_HEADER_INVALID", "The read-only SQLite header is invalid.");
+  }
+  if (header[18] !== 1 || header[19] !== 1) {
+    throw databaseError(
+      "SQLITE_READ_ONLY_JOURNAL_UNSAFE",
+      "The read-only SQLite snapshot must use rollback journal format."
+    );
+  }
+}
+
+function stableFileSnapshot(stat) {
+  return {
+    dev: stat.dev,
+    ino: stat.ino,
+    size: stat.size,
+    mode: stat.mode,
+    uid: stat.uid,
+    gid: stat.gid,
+    nlink: stat.nlink,
+    mtimeMs: stat.mtimeMs,
+    ctimeMs: stat.ctimeMs
+  };
+}
+
+function sameFileIdentity(left, right) {
+  return left.dev === right.dev && left.ino === right.ino;
+}
+
+function sameStableFileMetadata(left, right) {
+  return sameFileIdentity(left, right) && left.size === right.size && left.mode === right.mode
+    && left.uid === right.uid && left.gid === right.gid && left.nlink === right.nlink
+    && left.mtimeMs === right.mtimeMs && left.ctimeMs === right.ctimeMs;
 }
 
 function validatePragmaNumber(database, pragmaName, expected) {
